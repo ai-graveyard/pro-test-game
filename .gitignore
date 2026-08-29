@@ -1,0 +1,35 @@
+# macOS / Windows
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local agent and browser state
+.agents/
+.claude/
+.codex/
+.playwright-cli/
+
+# Dependencies and generated output
+node_modules/
+dist/
+coverage/
+*.zip
+*.log
+
+# Local design drafts (published assets live in docs/assets/)
+design/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Temporary files
+.cache/
+.tmp/
+tmp/
