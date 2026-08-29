@@ -1,6 +1,6 @@
 {
   "name": "pro-test-game",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "能打职业吗你？一款零依赖的移动端电竞能力测试小游戏。",
   "scripts": {

@@ -10,6 +10,21 @@
 
 > 本项目仅供娱乐，不代表真实的职业电竞选拔结果。
 
+## 界面预览
+
+<table>
+  <tr>
+    <td align="center"><strong>开始测试</strong></td>
+    <td align="center"><strong>关卡挑战</strong></td>
+    <td align="center"><strong>成绩卡</strong></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screenshots/home.png" width="260" alt="游戏首页截图" /></td>
+    <td><img src="docs/assets/screenshots/reaction.png" width="260" alt="神经反射关卡截图" /></td>
+    <td><img src="docs/assets/result-example.png" width="260" alt="职业指数成绩卡示例" /></td>
+  </tr>
+</table>
+
 ## 玩法
 
 - 神经反射：看到绿色后尽快点击。
@@ -20,8 +35,6 @@
 - 黄金 6.66：在看不到后半程数字的情况下停在 6.66 秒。
 
 完成全部关卡后，游戏会生成职业指数、五维能力评分和本地成绩卡。在小红书小工具环境中，可以通过原生 JSBridge 保存成绩卡或打开图文发布页。
-
-![职业指数结果示例](docs/assets/result-example.png)
 
 ## 本地运行
 
@@ -53,7 +66,7 @@ npm run package
 
 ```text
 .
-├── game/                  # 当前版本（v1.2.0）的可运行源码
+├── game/                  # 当前版本（v1.2.1）的可运行源码
 ├── archive/               # 尚未有 Git 历史前保留的旧版本源码
 ├── docs/
 │   ├── assets/            # README 使用的公开图片素材
@@ -68,6 +81,7 @@ npm run package
 
 ## 版本
 
+- `v1.2.1`：更新项目 Logo 与界面预览，并归档未采用的设计方案。
 - `v1.2.0`：使用小红书原生相册接口保存成绩卡，并完善失败反馈。
 - `v1.1.0`：增加超时自动跳过、进度恢复、键盘支持和更稳定的计时。
 - `v1.0.0`：首个 6 关公开版本。

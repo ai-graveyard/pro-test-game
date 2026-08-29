@@ -2,7 +2,7 @@
   "use strict";
 
   const app = document.querySelector("#app");
-  const APP_VERSION = "1.2.0";
+  const APP_VERSION = "1.2.1";
   const STORAGE_KEY = `pro-test-game-progress-${APP_VERSION}`;
   const TOTAL_LEVELS = 6;
   const ACTION_TIMEOUT_MS = 5000;
