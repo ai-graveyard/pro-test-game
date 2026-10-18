@@ -11,7 +11,7 @@ mkdir -p "$DIST_DIR"
 trap 'rm -f "$TEMP_ZIP"' EXIT HUP INT TERM
 
 cd "$ROOT_DIR/game"
-zip -X -j -9 "$TEMP_ZIP" index.html styles.css game.js >/dev/null
+zip -X -j -9 "$TEMP_ZIP" index.html styles.css stage-styles.css impact-styles.css mini-compat.js mini-storage.js arena3d.js stage-engine.js stage-art.js stage-models.js stage-scenes.js game-audio.js impact-feedback.js game.js >/dev/null
 unzip -tq "$TEMP_ZIP"
 
 SIZE=$(wc -c < "$TEMP_ZIP" | tr -d '[:space:]')

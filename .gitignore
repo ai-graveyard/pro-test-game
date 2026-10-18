@@ -13,6 +13,7 @@ Thumbs.db
 .claude/
 .codex/
 .playwright-cli/
+output/playwright/
 
 # Dependencies and generated output
 node_modules/

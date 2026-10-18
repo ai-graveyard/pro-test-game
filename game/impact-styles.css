@@ -1,0 +1,236 @@
+/* Event-driven impact overlay. All moving effects belong to GameImpact and are
+   removed on clear/destroy; the resting viewport has no animated decoration. */
+.challenge-stage > .impact-layer {
+  position: absolute;
+  z-index: 3;
+  top: 0; right: 0; bottom: 0; left: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  user-select: none;
+}
+
+.challenge-stage .impact-viewport {
+  position: absolute;
+  top: var(--scene-top, 112px);
+  right: 0;
+  bottom: var(--scene-bottom, 96px);
+  left: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.challenge-stage .impact-effect {
+  position: absolute;
+  display: block;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.challenge-stage .challenge-world.impact-recoiling { will-change: transform; }
+
+.challenge-stage .impact-flash {
+  top: 0; right: 0; bottom: 0; left: 0;
+  background: radial-gradient(ellipse at 58% 78%, rgba(255, 214, 135, .38), rgba(255, 186, 88, .09) 24%, transparent 57%);
+}
+
+.challenge-stage .impact-cross {
+  top: 50%;
+  left: 50%;
+  width: 27px;
+  height: 27px;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 0 5px var(--impact-color, #55f5ff));
+}
+
+.challenge-stage .impact-cross::before,
+.challenge-stage .impact-cross::after {
+  position: absolute;
+  top: 12px;
+  left: 0;
+  width: 27px;
+  height: 2px;
+  content: "";
+  background: var(--impact-color, #55f5ff);
+  border-radius: 1px;
+}
+
+.challenge-stage .impact-cross::before { transform: rotate(45deg); }
+.challenge-stage .impact-cross::after { transform: rotate(-45deg); }
+.challenge-stage .impact-cross-perfect::before,
+.challenge-stage .impact-cross-perfect::after { height: 3px; }
+
+.challenge-stage .impact-spark {
+  top: 50%;
+  left: 50%;
+  width: 12px;
+  height: 2px;
+  background: var(--impact-color, #55f5ff);
+  border-radius: 1px;
+  transform-origin: left center;
+  box-shadow: 0 0 4px var(--impact-color, #55f5ff);
+}
+
+.challenge-stage .impact-ring {
+  top: 50%;
+  left: 50%;
+  width: 130px;
+  height: 130px;
+  width: clamp(88px, 24vw, 190px);
+  height: clamp(88px, 24vw, 190px);
+  aspect-ratio: 1;
+  border: 2px solid var(--impact-color, #55f5ff);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 14px rgba(85, 245, 255, .22), inset 0 0 12px rgba(85, 245, 255, .16);
+}
+
+.challenge-stage .impact-block-ring {
+  border-width: 3px;
+  border-right-color: transparent;
+  border-left-color: transparent;
+}
+
+.challenge-stage .impact-block-ring::before {
+  position: absolute;
+  top: 10px; right: 10px; bottom: 10px; left: 10px;
+  border: 1px solid var(--impact-color, #55f5ff);
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+  border-radius: 50%;
+  content: "";
+}
+
+.challenge-stage .impact-ring-perfect { border-width: 4px; }
+.challenge-stage .impact-edge { top: 0; right: 0; bottom: 0; left: 0; }
+.challenge-stage .impact-edge-block {
+  box-shadow: inset 0 0 28px rgba(28, 234, 255, .17), inset 0 0 3px rgba(132, 247, 255, .42);
+}
+
+.challenge-stage .impact-edge-fail {
+  background: radial-gradient(ellipse, transparent 34%, rgba(130, 7, 36, .10) 67%, rgba(226, 25, 66, .30) 100%);
+  box-shadow: inset 0 0 24px rgba(218, 22, 57, .19);
+}
+
+.challenge-stage .impact-edge-miss {
+  box-shadow: inset 0 0 18px rgba(226, 35, 69, .22);
+}
+
+.challenge-stage .impact-edge-early {
+  box-shadow: inset 0 0 18px rgba(255, 167, 66, .21);
+}
+
+.challenge-stage .impact-edge-success {
+  box-shadow: inset 0 0 21px rgba(75, 255, 150, .19);
+}
+
+.challenge-stage .impact-switch-ring {
+  top: 74%;
+  left: 60%;
+  width: 38px;
+  height: 38px;
+  border-width: 2px;
+}
+
+.challenge-stage .impact-early-ring { width: 47px; height: 47px; border-style: dashed; }
+.challenge-stage .impact-confirm-ring { width: 55px; height: 55px; border-width: 1px; }
+.challenge-stage .impact-complete-ring {
+  width: 130px;
+  height: 130px;
+  width: clamp(92px, 24vw, 175px);
+  height: clamp(92px, 24vw, 175px);
+  border-width: 2px;
+}
+
+.challenge-stage .impact-complete-ring::before {
+  position: absolute;
+  top: 11px; right: 11px; bottom: 11px; left: 11px;
+  border: 1px solid rgba(121, 255, 177, .42);
+  border-radius: 50%;
+  content: "";
+}
+
+.challenge-stage .impact-success-sweep {
+  top: -10%;
+  left: 0;
+  width: 100%;
+  height: 120%;
+  background: linear-gradient(90deg, transparent 24%, rgba(115, 255, 172, .05) 43%, rgba(167, 255, 197, .30) 50%, rgba(115, 255, 172, .07) 57%, transparent 75%);
+}
+
+/* The DOM data attribute is the sole visual source for audio state. */
+.audio-toggle {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  grid-gap: 8px; gap: 8px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 9px 11px;
+  border: 1px solid #34445f;
+  border-radius: 3px;
+  background: rgba(8, 15, 29, .86);
+  color: #9aabc2;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: .04em;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.audio-toggle[data-muted="false"] {
+  border-color: rgba(0, 237, 250, .42);
+  color: #5deaf2;
+  box-shadow: inset 0 0 12px rgba(0, 230, 244, .035);
+}
+
+.audio-toggle[data-muted="true"] {
+  border-color: #303b50;
+  color: #748199;
+}
+
+.audio-icon { display: grid; align-items: center; justify-items: center; place-items: center; flex: 0 0 auto; width: 19px; height: 19px; font-size: 17px; line-height: 1; }
+.audio-icon svg { display: block; width: 19px; height: 19px; }
+.audio-icon .audio-off { display: none; }
+.audio-toggle[data-muted="true"] .audio-waves { display: none; }
+.audio-toggle[data-muted="true"] .audio-off { display: block; }
+.audio-label { white-space: nowrap; }
+.audio-toggle:focus { outline: 2px solid #55f5ff; outline-offset: 3px; }
+.audio-toggle:focus-visible { outline: 2px solid #55f5ff; outline-offset: 3px; }
+.audio-toggle:active { opacity: .75; }
+
+@media (hover: hover) {
+  .audio-toggle:hover { border-color: #6c91b8; }
+  .audio-toggle[data-muted="false"]:hover { border-color: #55f5ff; }
+}
+
+@media (max-width: 620px) {
+  .app-shell .topbar-right .online-indicator { display: none; }
+  .audio-toggle { padding: 9px; grid-gap: 0; gap: 0; }
+  .audio-toggle .audio-label { display: none; }
+  .challenge-stage .impact-spark { width: 9px; }
+  .challenge-stage .impact-cross { width: 23px; height: 23px; }
+  .challenge-stage .impact-cross::before,
+  .challenge-stage .impact-cross::after { top: 10px; width: 23px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .challenge-stage .impact-motion { display: none; }
+  .challenge-stage .challenge-world.impact-recoiling { will-change: auto; }
+}
+
+@supports (color: color-mix(in srgb, red, blue)) {
+  .challenge-stage .impact-ring {
+    box-shadow: 0 0 14px color-mix(in srgb, var(--impact-color, #55f5ff) 22%, transparent), inset 0 0 12px color-mix(in srgb, var(--impact-color, #55f5ff) 16%, transparent);
+  }
+}
+html.no-flex-gap .audio-toggle { gap: 0; row-gap: 0; column-gap: 0; }
+html.no-flex-gap .audio-toggle .audio-label { margin-left: 8px; }
+@media (max-width: 620px) {
+  html.no-flex-gap .audio-toggle .audio-label { margin-left: 0; }
+}

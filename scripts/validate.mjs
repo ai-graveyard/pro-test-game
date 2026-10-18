@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const gameDir = path.join(root, "game");
-const requiredFiles = ["index.html", "styles.css", "game.js"];
+const requiredFiles = ["index.html", "styles.css", "stage-styles.css", "impact-styles.css", "mini-compat.js", "mini-storage.js", "arena3d.js", "stage-engine.js", "stage-art.js", "stage-models.js", "stage-scenes.js", "game-audio.js", "impact-feedback.js", "game.js"];
 const allowedExtensions = new Set([
   ".html", ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".webp",
   ".svg", ".woff", ".woff2", ".json",
@@ -41,8 +41,8 @@ for (const file of relativeFiles) {
 }
 
 const html = await readFile(path.join(gameDir, "index.html"), "utf8");
-const css = await readFile(path.join(gameDir, "styles.css"), "utf8");
-const js = await readFile(path.join(gameDir, "game.js"), "utf8");
+const cssFiles = relativeFiles.filter((file) => path.extname(file).toLowerCase() === ".css");
+const scriptFiles = relativeFiles.filter((file) => path.extname(file).toLowerCase() === ".js");
 
 const htmlRequirements = [
   [/<!doctype html>/i, "index.html must declare <!doctype html>."],
@@ -63,6 +63,8 @@ const forbiddenHtml = [
   [/<(?:base|iframe|object)\b/i, "base, iframe, and object elements are not allowed."],
   [/<meta[^>]+http-equiv=["']Content-Security-Policy["']/i, "The container owns the CSP."],
   [/(?:src|href)=["']https?:\/\//i, "External resources are not allowed."],
+  [/\bjavascript\s*:/i, "javascript: URLs are not allowed."],
+  [/<a\b[^>]*(?:\bdownload(?:\s|=|>)|target=["']_blank["'])/i, "Downloads and new-window links are not allowed."],
 ];
 for (const [pattern, message] of forbiddenHtml) {
   if (pattern.test(html)) errors.push(message);
@@ -73,32 +75,63 @@ const forbiddenCode = [
   [/\bXMLHttpRequest\b/, "XMLHttpRequest"],
   [/\b(?:WebSocket|EventSource|RTCPeerConnection)\s*\(/, "network communication API"],
   [/navigator\.(?:geolocation|clipboard|bluetooth|usb|hid|serial|serviceWorker)/, "restricted navigator API"],
+  [/navigator\.(?:getBattery|connection|credentials|locks)|navigator\.storage\.persist|navigator\.mediaDevices\.(?:enumerateDevices|getDisplayMedia)/, "restricted device API"],
+  [/\b(?:Accelerometer|Gyroscope|Magnetometer|DeviceMotionEvent|DeviceOrientationEvent|PaymentRequest)\b/, "restricted sensor/payment API"],
+  [/\b(?:requestFullscreen|webkitRequestFullscreen)\s*\(/, "fullscreen API"],
   [/\b(?:Worker|SharedWorker)\s*\(/, "worker API"],
   [/\b(?:eval|Function)\s*\(/, "dynamic code execution"],
   [/\bWebAssembly\b/, "WebAssembly"],
   [/window\.(?:open|prompt)\s*\(/, "window.open/window.prompt"],
   [/\b(?:import|export)\s+/, "ES module syntax"],
 ];
-for (const [pattern, name] of forbiddenCode) {
-  if (pattern.test(js)) errors.push(`Restricted API or syntax found: ${name}.`);
-}
-if (/url\(\s*["']?https?:\/\//i.test(css)) errors.push("External CSS resources are not allowed.");
-
-const bridgeCalls = [...js.matchAll(/miniTool\.([A-Za-z0-9_]+)\s*\(/g)].map((match) => match[1]);
-const allowedBridgeCalls = new Set(["postNote", "saveImageToPhotosAlbum", "writeTempFile", "openRedPage"]);
-for (const call of bridgeCalls) {
-  if (!allowedBridgeCalls.has(call)) errors.push(`Unsupported miniTool bridge call: ${call}`);
+for (const file of cssFiles) {
+  const css = await readFile(path.join(gameDir, file), "utf8");
+  if (/url\(\s*["']?(?:https?:)?\/\/|@import\s+["'](?:https?:)?\/\//i.test(css)) errors.push(`${file}: external CSS resources are not allowed.`);
 }
 
-const resourcePattern = /(?:src|href)=["']\.\/([^"'#?]+)["']/gi;
+const allowedBridgeCalls = new Set(["postNote", "saveImageToPhotosAlbum", "writeTempFile", "getLaunchOptions", "getStorage", "setStorage", "removeStorage"]);
+for (const file of scriptFiles) {
+  const js = await readFile(path.join(gameDir, file), "utf8");
+  for (const [pattern, name] of forbiddenCode) {
+    if (pattern.test(js)) errors.push(`${file}: restricted API or syntax found: ${name}.`);
+  }
+
+  const bridgeCalls = [...js.matchAll(/(?:miniTool|bridge)\.([A-Za-z0-9_]+)\s*\(/g)].map((match) => match[1]);
+  for (const call of bridgeCalls) {
+    if (!allowedBridgeCalls.has(call)) errors.push(`${file}: unsupported miniTool bridge call: ${call}`);
+  }
+
+  const syntax = spawnSync(process.execPath, ["--check", path.join(gameDir, file)], {
+    encoding: "utf8",
+  });
+  if (syntax.status !== 0) {
+    errors.push(`${file}: ${syntax.stderr.trim() || "failed syntax validation."}`);
+  }
+}
+
+const controller = await readFile(path.join(gameDir, "game.js"), "utf8");
+if (!controller.includes(`const APP_VERSION = "${version}"`)) errors.push("The controller version differs from VERSION.");
+const storage = await readFile(path.join(gameDir, "mini-storage.js"), "utf8");
+if (!storage.includes(`"pro-test-game-progress-${version}"`)) errors.push("The native-storage preload key differs from VERSION.");
+
+const resourcePattern = /(?:src|href)\s*=\s*["']([^"']+)["']/gi;
 for (const match of html.matchAll(resourcePattern)) {
-  if (!relativeFiles.includes(match[1])) errors.push(`Missing referenced resource: ${match[1]}`);
+  const reference = match[1];
+  if (reference === "data:,") continue; // Empty local favicon.
+  if (!reference.startsWith("./")) { errors.push(`Resource must use a local relative path: ${reference}`); continue; }
+  const file = reference.slice(2).split(/[?#]/)[0];
+  if (!relativeFiles.includes(file)) errors.push(`Missing referenced resource: ${file}`);
 }
 
-const syntax = spawnSync(process.execPath, ["--check", path.join(gameDir, "game.js")], {
-  encoding: "utf8",
-});
-if (syntax.status !== 0) errors.push(syntax.stderr.trim() || "game.js failed syntax validation.");
+const scripts = [...html.matchAll(/<script\b[^>]*\bsrc=["']\.\/([^"'?#]+)[^"']*["']/gi)].map(match => match[1]);
+const expectedScripts = requiredFiles.filter(file => file.endsWith(".js"));
+if (scripts.join(",") !== expectedScripts.join(",")) errors.push("Classic-script dependency order does not match the package manifest.");
+const es2017 = spawnSync(process.execPath, ["--expose-internals", path.join(root, "scripts/check-es2017.cjs"), ...scriptFiles.map(file => path.join(gameDir, file))], { encoding: "utf8" });
+if (es2017.status !== 0) errors.push(es2017.stderr.trim() || "ES2017 parser validation failed.");
+else console.log(es2017.stdout.trim());
+const storageCheck = spawnSync(process.execPath, [path.join(root, "scripts/check-storage.cjs")], { encoding: "utf8" });
+if (storageCheck.status !== 0) errors.push(storageCheck.stderr.trim() || "Storage contract validation failed.");
+else console.log(storageCheck.stdout.trim());
 
 if (errors.length > 0) {
   console.error("Validation failed:\n");

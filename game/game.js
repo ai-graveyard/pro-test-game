@@ -2,7 +2,8 @@
   "use strict";
 
   const app = document.querySelector("#app");
-  const APP_VERSION = "1.2.1";
+  document.body.classList.toggle("in-minitool", Boolean(window.xhs && window.xhs.miniTool));
+  const APP_VERSION = "1.4.0";
   const STORAGE_KEY = `pro-test-game-progress-${APP_VERSION}`;
   const TOTAL_LEVELS = 6;
   const ACTION_TIMEOUT_MS = 5000;
@@ -12,7 +13,7 @@
       title: "神经反射",
       goal: "反应",
       color: "var(--green)",
-      instruction: "屏幕变绿后立刻点击。绿之前点，算抢跑。",
+      instruction: "盯住走廊尽头的闸门。绿色能量靶亮起时，立刻点击开火；亮起前开火算抢跑。",
       rule: "3 次有效测试 · 随机等待 · 绿色出现 5 秒未点击则本关超时",
       run: runReaction,
     },
@@ -21,7 +22,7 @@
       title: "完美格挡",
       goal: "时机",
       color: "var(--yellow)",
-      instruction: "粉色圆点与黄色靶心重合的一瞬间点击。",
+      instruction: "能量刃会从远处迎面飞来。它撞上面前护盾的一瞬间，点击格挡。",
       rule: "3 次格挡 · 每次速度不同 · 越接近 0ms 越好",
       run: runTiming,
     },
@@ -30,8 +31,8 @@
       title: "别急着点",
       goal: "判断",
       color: "var(--orange)",
-      instruction: "绿色就点，红色忍住。看到变化不等于该出手。",
-      rule: "10 个信号 · 绿点 / 红不点 · 误触扣分",
+      instruction: "机库里会出现两种无人机：红色尖翼是敌机，点击开火；蓝色带十字的是友机，忍住。",
+      rule: "10 次敌我识别 · 红色敌机开火 / 蓝色友机停火",
       run: runDecision,
     },
     {
@@ -40,7 +41,7 @@
       goal: "预判",
       color: "var(--blue)",
       textColor: "var(--white)",
-      instruction: "目标进入蓝色遮挡后，预判它到达终点的瞬间点击。",
+      instruction: "观察运输机的速度。它进入蓝色机库后，预判它穿过右侧出口准星的时刻开火。",
       rule: "3 次预判 · 进入遮挡前不能点 · 速度随机",
       run: runPrediction,
     },
@@ -49,8 +50,8 @@
       title: "多目标警戒",
       goal: "专注",
       color: "var(--pink)",
-      instruction: "盯住全部目标，任意一个发生变化就点击屏幕。",
-      rule: "4 轮警戒 · 目标逐渐增多 · 不必点中目标",
+      instruction: "扫描不同纵深的哨塔。某座哨塔变红并展开武器时，直接点中它，阻止入侵。",
+      rule: "4 轮 · 最多 12 座哨塔 · 点中入侵者 · 键盘方向键选中后空格开火",
       run: runAttention,
     },
     {
@@ -58,7 +59,7 @@
       title: "黄金 6.66",
       goal: "抗压",
       color: "var(--orange)",
-      instruction: "计时器启动后，在最接近 6.66 秒的一刻点击停止。",
+      instruction: "核心开始充能后，在最接近 6.66 秒时点击拆弹。装置上的数码屏会在 4 秒后熄灭。",
       rule: "只有 1 次机会 · 4 秒后隐藏计时 · 10 秒未点击则失败",
       run: runPressure,
     },
@@ -69,7 +70,7 @@
     decisionSpeed: [[180, 100], [220, 80], [260, 60], [340, 30], [450, 0]],
     timing: [[20, 100], [45, 80], [80, 60], [140, 30], [220, 0]],
     prediction: [[40, 100], [80, 80], [140, 60], [240, 30], [400, 0]],
-    attentionSpeed: [[200, 100], [260, 80], [340, 60], [500, 30], [700, 0]],
+    attentionSpeed: [[350, 100], [500, 80], [750, 60], [1000, 30], [1800, 0]],
     pressure: [[30, 100], [80, 85], [200, 60], [350, 30], [600, 0]],
   };
   const DECISION_ACCURACY_SCORES = [0, 0, 0, 0, 0, 0, 20, 40, 65, 85, 100];
@@ -83,6 +84,84 @@
   let lastLevelResult = null;
   let resumeNotice = "";
   let results = freshResults();
+  let challengeScene = null;
+  let impactFeedback = null;
+  let activityGeneration = 0;
+  let booted = false;
+  const sound = window.GameSFX;
+
+  function unlockSound() {
+    if (sound && !document.hidden) return sound.unlock();
+    return null;
+  }
+
+  function updateSoundButton() {
+    const button = app.querySelector("[data-action='sound-toggle']");
+    if (!button || !sound) return;
+    const available = sound.isAvailable();
+    const muted = sound.isMuted() || !available;
+    button.dataset.muted = String(muted);
+    button.disabled = !available;
+    button.setAttribute("aria-pressed", String(!muted));
+    button.setAttribute("aria-label", available ? `音效：${muted ? "关，点击开启" : "开，点击静音"}` : "当前环境音效不可用");
+    button.title = available ? muted ? "开启音效" : "静音" : "当前环境音效不可用";
+    const label = button.querySelector(".audio-label");
+    if (label) label.textContent = muted ? "音效关" : "音效开";
+  }
+
+  function actionFeedback(kinds, options = {}) {
+    // Every caller records its score/timestamp before reaching this function.
+    const generation = activityGeneration;
+    const play = () => {
+      if (sound && generation === activityGeneration && !document.hidden) {
+        const volume = options.power === null || options.power === undefined ? .7 : options.power;
+        kinds.forEach(kind => sound.play(kind, Object.assign({}, options, { volume })));
+      }
+    };
+    if (sound && options.gesture) {
+      const pending = unlockSound();
+      if (sound.getState().unlocked) play();
+      else Promise.resolve(pending).then(ready => { if (ready) play(); updateSoundButton(); });
+    } else play();
+    // A block layers result sounds but uses one complete shield effect.
+    const visualKinds = kinds.includes("block") ? ["block"] : kinds;
+    visualKinds.forEach(kind => { if (impactFeedback) impactFeedback.trigger(kind, options); });
+  }
+
+  const ICON_PATHS = {
+    reaction: '<path d="m14 2-9 12h6l-1 8 9-12h-6z"/>',
+    timing: '<path d="m12 3 8 4v5c0 5-8 9-8 9s-8-4-8-9V7z"/><path d="m8 12 3 3 5-6"/>',
+    decision: '<path d="M8 3v18M16 3v18M3 8h18M3 16h18"/><circle cx="8" cy="8" r="3"/><circle cx="16" cy="16" r="3"/>',
+    prediction: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 1v5m0 12v5M1 12h5m12 0h5"/>',
+    attention: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+    pressure: '<circle cx="12" cy="13" r="8"/><path d="M9 2h6m-3 3v-3m0 7v4l3 2M18 6l2-2"/>',
+  };
+  const LEVEL_ENGLISH = ["REACTION", "TIMING", "DECISION", "PREDICTION", "FOCUS", "PRESSURE"];
+  const arena = window.ProArena3D;
+  if (arena) {
+    try { arena.mount(document.querySelector("#arena-world")); }
+    catch (error) { console.warn("3D scene unavailable; continuing with the standard interface", error); }
+  }
+
+  function icon(id, className = "") {
+    return `<svg class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[id] || ICON_PATHS.reaction}</svg>`;
+  }
+
+  function sceneSignal(state) {
+    if (arena) arena.setSignal(state);
+  }
+
+  function updateScene() {
+    if (!arena) return;
+    const modeMap = { timing: "parry", decision: "stroop", attention: "focus", pressure: "timer" };
+    const level = LEVELS[levelIndex];
+    const mode = currentScreen === "play" ? (modeMap[level.id] || level.id)
+      : currentScreen === "intro" ? "instruction"
+      : currentScreen === "final" || currentScreen === "result" ? "result" : "home";
+    arena.setMode(mode);
+    if (arena.setPaused) arena.setPaused(currentScreen === "play");
+    sceneSignal(currentScreen === "result" || currentScreen === "final" ? "success" : "idle");
+  }
 
   function freshResults() {
     return {
@@ -132,9 +211,11 @@
   }
 
   function clearActivity() {
+    activityGeneration += 1;
     cleanupTasks.forEach((cleanup) => cleanup());
     cleanupTasks = [];
     screenLocked = false;
+    if (sound) sound.stop();
   }
 
   function bindPointer(selector, handler) {
@@ -163,11 +244,13 @@
     if (!element) return;
     const listener = (event) => {
       event.preventDefault();
+      unlockSound();
       handler(event);
     };
     const keyListener = (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
+      unlockSound();
       handler(event);
     };
     element.addEventListener("click", listener);
@@ -182,6 +265,7 @@
     bindClick(selector, (event) => {
       if (screenLocked) return;
       screenLocked = true;
+      if (sound) sound.play("confirm", { volume: .35 });
       event.currentTarget.classList.add("is-pressed");
       schedule(() => {
         clearActivity();
@@ -193,7 +277,7 @@
   function persistProgress() {
     if (currentScreen === "home") return;
     try {
-      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+      const value = JSON.stringify({
         version: APP_VERSION,
         levelIndex,
         levelId: LEVELS[levelIndex] ? LEVELS[levelIndex].id : null,
@@ -201,15 +285,24 @@
         lastLevelResult,
         resumeNotice,
         results,
-      }));
+      });
+      if (window.MiniStorage && typeof window.MiniStorage.setItem === "function") {
+        observeProgressWrite(window.MiniStorage.setItem(STORAGE_KEY, value, "session"), "Unable to save test progress");
+      } else window.sessionStorage.setItem(STORAGE_KEY, value);
     } catch (error) {
       console.warn("Unable to save test progress", error);
     }
   }
 
+  function observeProgressWrite(operation, message) {
+    Promise.resolve(operation).then((saved) => { if (saved === false) console.warn(message); }, (error) => console.warn(message, error));
+  }
+
   function clearSavedProgress() {
     try {
-      window.sessionStorage.removeItem(STORAGE_KEY);
+      if (window.MiniStorage && typeof window.MiniStorage.removeItem === "function") {
+        observeProgressWrite(window.MiniStorage.removeItem(STORAGE_KEY, "session"), "Unable to clear test progress");
+      } else window.sessionStorage.removeItem(STORAGE_KEY);
     } catch (error) {
       console.warn("Unable to clear test progress", error);
     }
@@ -217,7 +310,8 @@
 
   function restoreProgress() {
     try {
-      const raw = window.sessionStorage.getItem(STORAGE_KEY);
+      const raw = window.MiniStorage && typeof window.MiniStorage.getItem === "function"
+        ? window.MiniStorage.getItem(STORAGE_KEY, "session") : window.sessionStorage.getItem(STORAGE_KEY);
       if (!raw) return false;
       const saved = JSON.parse(raw);
       if (
@@ -271,21 +365,37 @@
       progress = 0,
       count = "6 关短测",
       note = "全程只需单指点击",
-      brand = APP_VERSION,
+      brand = "PRO TEST",
       stageTitle = "",
       showProgress = true,
     } = options;
+    const stage = LEVELS[levelIndex] || LEVELS[0];
     app.innerHTML = `
-      <div class="app-shell">
+      <div class="app-shell" data-screen="${currentScreen}" data-level-id="${stage.id}" style="--stage-accent:${stage.color}">
         ${stageTitle ? `<div class="active-level-title" aria-label="当前关卡">${stageTitle}</div>` : ""}
         <header class="topbar">
-          <span class="brand-mini">${brand}</span>
+          <span class="brand-mini" title="v${APP_VERSION}"><svg class="brand-symbol" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m16 2 12 7v14l-12 7-12-7V9zM4 9l12 7 12-7M16 16v14m-6-18 12-7"/></svg><span class="brand-wordmark">${brand}<small>电竞天赋实验室</small></span></span>
           ${showProgress ? `<div class="progress-track" role="progressbar" aria-label="测试进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${rounded(progress)}"><div class="progress-fill" style="--progress:${progress}%"></div></div>` : ""}
-          <span class="stage-count">${count}</span>
+          <div class="topbar-right"><span class="online-indicator">${currentScreen === "home" ? "训练场就绪" : currentScreen === "final" || currentScreen === "result" ? "测试完成" : "测试进行中"}</span><button class="audio-toggle" type="button" data-action="sound-toggle" aria-pressed="true" aria-label="音效：开，点击静音"><svg class="audio-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path class="audio-waves" d="M16 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/><path class="audio-off" d="m17 10 5 5m0-5-5 5"/></svg><span class="audio-label">音效开</span></button><span class="stage-count">${count}</span></div>
         </header>
-        <section class="screen">${content}</section>
+        <section class="screen screen-${currentScreen}">${content}</section>
         <footer class="bottom-note">${note}</footer>
       </div>`;
+    document.body.dataset.screen = currentScreen;
+    updateScene();
+    updateSoundButton();
+    bindClick("[data-action='sound-toggle']", event => {
+      if (!sound || event.repeat) return;
+      sound.setMuted(!sound.isMuted());
+      if (!sound.isMuted()) {
+        const generation = activityGeneration;
+        Promise.resolve(unlockSound()).then(ready => {
+          if (ready && generation === activityGeneration && !document.hidden) sound.play("confirm", { volume: .35 });
+          updateSoundButton();
+        });
+      }
+      updateSoundButton();
+    });
   }
 
   function showHome() {
@@ -297,18 +407,25 @@
     clearSavedProgress();
     shell(
       `<article class="hero">
-        <span class="hero-sticker">90 秒 · 电竞天赋短测</span>
-        <h1>能打职业吗<br><span>你？</span></h1>
-        <p class="hero-sub">六关挑战，一根手指。看看你离职业到底差多少。</p>
-        <div class="facts">
-          <span class="fact">6 关测试</span>
-          <span class="fact">约 90 秒</span>
-          <span class="fact">建议用惯用手</span>
+        <div class="hero-copy">
+          <span class="hero-sticker"><span class="eyebrow">PLAYER POTENTIAL / NEON ARENA</span></span>
+          <h1><span class="title-main">能打职业</span><span class="title-line">吗<span class="title-accent">你？</span></span></h1>
+          <p class="hero-sub">手速、预判，还是大心脏？<br>进入训练场，测测你的电竞天赋。</p>
+          <div class="facts">
+            <span class="fact"><strong>06</strong><small>能力挑战</small></span>
+            <span class="fact"><strong>90<span>s</span></strong><small>发现你的潜能</small></span>
+            <span class="fact"><strong>01</strong><small>根手指就够</small></span>
+          </div>
+          <div class="hero-actions">
+            <button class="brutal-btn" type="button" data-action="start"><span>进入训练场</span><span aria-hidden="true">↗</span></button>
+            <p class="tiny-disclaimer">无需下载 · 戴上你的自信，其他交给反应</p>
+          </div>
         </div>
-        <button class="brutal-btn" type="button" data-action="start">开始测试 →</button>
-        <p class="tiny-disclaimer">娱乐测试，不代表真实职业选拔结果。设备刷新率与浏览器性能会影响毫秒数据。</p>
+        <div class="arena-hud" aria-hidden="true"><span class="hud-crosshair"></span><span class="hud-orbit-label">CORE / ONLINE</span><span class="hud-readout">PLAYER POTENTIAL</span></div>
+        <div class="arena-caption" aria-hidden="true"><span class="coordinate">SYS. 001 / POTENTIAL CORE</span><span class="arena-name">你的潜能，等待唤醒。</span><span class="arena-hint">移动光标，探索训练场</span></div>
+        <div class="test-lineup" role="list" aria-label="六项能力挑战">${LEVELS.map((level, index) => `<div class="test-module" role="listitem"><span class="module-no">0${index + 1}</span>${icon(level.id, "module-icon")}<span class="module-name">${level.title}</span><span class="module-en">${LEVEL_ENGLISH[index]}</span></div>`).join("")}</div>
       </article>`,
-      { progress: 0, count: "准备开测", note: "建议竖屏 · 关闭省电模式效果更稳", showProgress: false },
+      { progress: 0, count: "NEON ARENA", note: "仅供娱乐，不代表职业选拔结果 · 设备性能会影响毫秒数据", showProgress: false },
     );
     bindAction("[data-action='start']", () => {
       levelIndex = 0;
@@ -326,13 +443,14 @@
     resumeNotice = "";
     shell(
       `<article class="level-card" style="--level-color:${level.color};--level-text:${level.textColor || "var(--ink)"}">
+        <div class="level-glyph">${icon(level.id)}</div>
         <span class="level-no">第 ${levelIndex + 1} / ${TOTAL_LEVELS} 关 · ${level.goal}</span>
         <h2>${level.title}</h2>
-        <p class="goal">TEST / ${level.goal.toUpperCase()}</p>
+        <p class="goal">EXPERIMENT 0${levelIndex + 1} / ${LEVEL_ENGLISH[levelIndex]}</p>
         <p class="instruction">${level.instruction}</p>
         <div class="rule-box">${level.rule}</div>
         ${notice ? `<p class="resume-note" role="status">${notice}</p>` : ""}
-        <button class="brutal-btn" type="button" data-action="play">我懂了，开测</button>
+        <button class="brutal-btn" type="button" data-action="play">我准备好了，开始 →</button>
       </article>`,
       {
         progress: (levelIndex / TOTAL_LEVELS) * 100,
@@ -374,110 +492,128 @@
     });
   }
 
-  function playShell(inner, { round, total, status, className = "", note = "看到目标后，点击测试区域任意位置" }) {
+  function setChallenge(patch, now = performance.now()) {
+    if (!challengeScene) return;
+    challengeScene.setState(patch);
+    challengeScene.render(now);
+  }
+
+  function setStageStatus(text) {
+    const node = app.querySelector("[data-status]");
+    if (node && node.textContent !== text) node.textContent = text;
+  }
+
+  function setStageText(title, support) {
+    const heading = app.querySelector("[data-scene-title]");
+    const description = app.querySelector(".support-text");
+    if (heading) heading.textContent = title;
+    if (description && support !== undefined) description.textContent = support;
+  }
+
+  function setActionHint(text) {
+    const node = app.querySelector("[data-action-hint]");
+    if (node) node.textContent = text;
+  }
+
+  function playShell(inner, {
+    round, total, status, className = "", note = "点击场景操作",
+    sceneTitle = "准备", sceneTag = "LIVE SIMULATION", actionHint = "点击场景", actionDetail = "触屏 / 鼠标 / 空格", sceneState = {},
+  }) {
     const level = LEVELS[levelIndex];
     currentScreen = "play";
     shell(
-      `<div class="play-area ${className}" data-play-area role="button" tabindex="0" aria-label="${note}">
-        <div class="play-head">
-          <span class="round-pill">ROUND ${round} / ${total}</span>
-          <span class="status-pill" data-status>${status}</span>
-        </div>
+      `<div class="play-area challenge-stage stage-${level.id} ${className}" data-play-area role="button" tabindex="0" aria-label="${note}">
+        <div class="play-head"><span class="round-pill">ROUND ${round} / ${total}</span><span class="status-pill" data-status>${status}</span></div>
+        <div class="challenge-world" data-challenge-world aria-hidden="true"></div>
+        <div class="challenge-caption"><span class="challenge-eyebrow">${sceneTag}</span><h3 class="challenge-title" data-scene-title>${sceneTitle}</h3><p class="support-text">${note}</p></div>
+        <div class="challenge-feedback" data-metric-result role="status" aria-live="polite"></div>
+        <div class="challenge-actionbar"><span class="action-icon" aria-hidden="true">⌖</span><strong data-action-hint>${actionHint}</strong><small data-action-detail>${actionDetail}</small></div>
         ${inner}
       </div>`,
-      {
-        progress: ((levelIndex + (round - 1) / total) / TOTAL_LEVELS) * 100,
-        count: `${levelIndex + 1} / ${TOTAL_LEVELS}`,
-        stageTitle: level.title,
-        note,
-      },
+      { progress: ((levelIndex + (round - 1) / total) / TOTAL_LEVELS) * 100, count: `${levelIndex + 1} / ${TOTAL_LEVELS}`, stageTitle: level.title, note: "3D 实战模拟 · 所有成绩仅供娱乐" },
     );
+    const viewport = app.querySelector("[data-challenge-world]");
+    const impact = window.GameImpact.create(app.querySelector("[data-play-area]"));
+    impactFeedback = impact;
+    cleanupTasks.push(() => { impact.destroy(); if (impactFeedback === impact) impactFeedback = null; });
+    const instance = window.ChallengeScenes3D.create(viewport, level.id);
+    challengeScene = instance;
+    // Kept on this DOM node so accessibility/test tools can inspect projected targets.
+    viewport.challengeScene = instance;
+    instance.setState(sceneState);
+    instance.render(performance.now());
+    cleanupTasks.push(() => {
+      instance.destroy();
+      if (challengeScene === instance) challengeScene = null;
+    });
+    animate((now) => { instance.render(now); });
     persistProgress();
     onNextFrame(() => {
       const area = app.querySelector("[data-play-area]");
-      if (area) area.focus({ preventScroll: true });
+      if (area && typeof area.focus === "function") {
+        try { area.focus({ preventScroll: true }); } catch (_) { area.focus(); }
+      }
     });
   }
 
   function showMetricResult(message) {
-    const support = app.querySelector(".support-text");
     const overlay = app.querySelector("[data-metric-result]");
-    if (support) support.style.visibility = "hidden";
-    if (overlay) {
-      overlay.textContent = message;
-      overlay.classList.add("is-visible");
-    }
+    if (overlay) { overlay.textContent = message; overlay.classList.add("is-visible"); }
+    const area = app.querySelector("[data-play-area]");
+    if (area) area.classList.add("state-resolved");
   }
 
   function runReaction() {
-    clearActivity();
     const total = 3;
     let round = 0;
-
     const beginRound = () => {
       clearActivity();
-      let live = false;
-      let cueTime = 0;
-      playShell(
-        `<div class="center-content">
-          <div class="giant-text">等绿色</div>
-          <p class="support-text">现在点会抢跑。稳住。</p>
-        </div>`,
-        { round: round + 1, total, status: "WAIT", className: "reaction-waiting", note: "绿之前别点 · 变绿立刻点" },
-      );
-
+      let live = false, cueTime = 0, completed = false;
+      playShell("", {
+        round: round + 1, total, status: "LOCKED", className: "reaction-waiting", sceneTag: "01 / REACTOR BREACH", sceneTitle: "等待绿色能量靶",
+        note: "闸门解锁、绿灯亮起后立即开火", actionHint: "等待解锁 · 现在开火算抢跑", sceneState: { active: false, resolved: false },
+      });
       schedule(() => {
         onNextFrame((now) => {
+          if (completed) return;
+          setChallenge({ active: true, appearedAt: now }, now);
           const area = app.querySelector("[data-play-area]");
-          if (!area) return;
-          cueTime = now;
-          live = true;
-          area.classList.remove("reaction-waiting");
-          area.classList.add("reaction-live");
-          area.querySelector(".giant-text").textContent = "点！";
-          area.querySelector(".support-text").textContent = "NOW / NOW / NOW";
-          area.querySelector("[data-status]").textContent = "GO";
-          schedule(() => timeoutCurrentLevel("绿色出现 5 秒仍未点击"), ACTION_TIMEOUT_MS);
+          area.classList.replace("reaction-waiting", "reaction-live");
+          setStageText("开火！", "绿色靶已启动，立即点击");
+          setStageStatus("FIRE");
+          setActionHint("绿色靶已启动 · 立即开火");
+          // The cue is rendered synchronously in this frame before starting the clock.
+          cueTime = performance.now(); live = true;
+          schedule(() => { if (!completed) timeoutCurrentLevel("能量靶启动 5 秒仍未开火"); }, ACTION_TIMEOUT_MS);
         });
-      }, random(900, 1900));
-
+      }, random(1000, 2100));
       bindPointer("[data-play-area]", () => {
-        if (screenLocked) return;
-        const area = app.querySelector("[data-play-area]");
-        clearActivity();
-        screenLocked = true;
+        if (completed) return;
+        const reaction = live ? performance.now() - cueTime : 0;
+        completed = true;
+        const now = performance.now();
         if (!live) {
           results.reaction.falseStarts += 1;
-          area.classList.remove("reaction-waiting");
-          area.classList.add("reaction-false");
-          area.querySelector(".giant-text").textContent = "抢跑！";
-          area.querySelector(".support-text").textContent = "这轮不算，重新来。";
-          area.querySelector("[data-status]").textContent = "FALSE";
-          schedule(beginRound, 650);
-          return;
+          setStageStatus("EARLY"); setStageText("闸门还没解锁", "抢跑扣分，本轮重试");
+          setActionHint("抢跑 · 等待闸门重新锁定");
+          setChallenge({ resolved: true, outcome: "early", resolvedAt: now, shot: true, firedAt: now, impactKind: "miss" }, now);
+          actionFeedback(["shot", "early"], { gesture: true, power: .55, outcome: "miss" });
+          showMetricResult("抢跑 · -10 分");
+          schedule(beginRound, 850); return;
         }
-
-        const reaction = performance.now() - cueTime;
-        results.reaction.times.push(reaction);
-        round += 1;
-        area.querySelector(".giant-text").textContent = `${rounded(reaction)}ms`;
-        area.querySelector(".support-text").textContent = reaction < 230 ? "手比脑子快。" : "收到，下一轮。";
-        area.querySelector("[data-status]").textContent = "HIT";
-        if (round < total) schedule(beginRound, 600);
-        else {
-          schedule(() => {
-            const avg = average(results.reaction.times);
-            const best = Math.min(...results.reaction.times);
-            showLevelResult({
-              stamp: `${rounded(avg)}ms`,
-              meta: `平均反应 · 最快 ${rounded(best)}ms${results.reaction.falseStarts ? ` · 抢跑 ${results.reaction.falseStarts} 次（每次 -10 分）` : ""}`,
-              color: avg <= 200 ? "var(--green)" : avg <= 300 ? "var(--yellow)" : "var(--orange)",
-            });
-          }, 700);
-        }
+        results.reaction.times.push(reaction); round += 1;
+        setStageStatus("HIT"); setStageText("命中反应靶", "弹道与命中反馈已记录");
+        setActionHint("靶心已命中 · 等待下一轮");
+        setChallenge({ resolved: true, outcome: "success", resolvedAt: now, shot: true, firedAt: now, impactKind: "hit" }, now);
+        actionFeedback(["shot", "hit"], { gesture: true, power: .8, outcome: "success" });
+        showMetricResult(`${rounded(reaction)} ms`);
+        if (round < total) schedule(beginRound, 850);
+        else schedule(() => {
+          const avg = average(results.reaction.times), best = Math.min(...results.reaction.times);
+          showLevelResult({ stamp: `${rounded(avg)}ms`, meta: `平均开火反应 · 最快 ${rounded(best)}ms${results.reaction.falseStarts ? ` · 抢跑 ${results.reaction.falseStarts} 次（每次 -10 分）` : ""}`, color: avg <= 200 ? "var(--green)" : avg <= 300 ? "var(--yellow)" : "var(--orange)" });
+        }, 950);
       });
     };
-
     beginRound();
   }
 
@@ -491,428 +627,244 @@
   }
 
   function runDecision() {
-    clearActivity();
     const sequence = buildSignalSequence();
     let index = 0;
-    let signalStart = 0;
-    let resolved = false;
-    let started = false;
-
     const showSignal = () => {
       clearActivity();
       const signal = sequence[index];
-      resolved = false;
-      started = false;
-      playShell(
-        `<div class="center-content">
-          <div class="signal-card ${signal} is-pending">${signal === "go" ? "点" : "忍"}</div>
-          <p class="support-text">${signal === "go" ? "绿色 / 立刻点击" : "红色 / 不要点击"}</p>
-        </div>`,
-        { round: index + 1, total: sequence.length, status: "READY", note: "绿色点 · 红色忍住" },
-      );
-
-      const duration = random(580, 850);
-      bindPointer("[data-play-area]", () => resolveSignal(true));
-      onNextFrame((now) => {
-        const card = app.querySelector(".signal-card");
-        const status = app.querySelector("[data-status]");
-        if (!card || resolved) return;
-        signalStart = now;
-        started = true;
-        card.classList.remove("is-pending");
-        if (status) status.textContent = signal === "go" ? "GO" : "STOP";
-        schedule(() => resolveSignal(false), duration);
+      let completed = false, started = false, signalStart = 0;
+      playShell('<span class="scene-a11y" data-decision-signal="pending">等待识别</span>', {
+        round: index + 1, total: sequence.length, status: "SCANNING", sceneTag: "03 / FRIEND OR FOE", sceneTitle: "识别机库来客",
+        note: "红色尖翼敌机开火 · 蓝色十字友机停火", actionHint: "红敌开火 / 蓝友停火", sceneState: { signal, visible: false, lane: index % 3 - 1 },
       });
-
+      bindPointer("[data-play-area]", () => resolveSignal(true));
+      schedule(() => onNextFrame((now) => {
+        if (completed) return;
+        setChallenge({ visible: true, appearedAt: now }, now);
+        signalStart = performance.now(); started = true;
+        app.querySelector("[data-decision-signal]").dataset.decisionSignal = signal;
+        setStageStatus(signal === "go" ? "HOSTILE" : "FRIENDLY");
+        setStageText(signal === "go" ? "敌机！开火" : "友机通过，停火", signal === "go" ? "红色尖翼 / 已确认敌对" : "蓝色医疗十字 / 不要误伤");
+        schedule(() => resolveSignal(false), random(720, 1000));
+      }), 280);
       function resolveSignal(tapped) {
-        if (resolved || !started) return;
-        resolved = true;
+        if (completed || !started) return;
         const elapsed = performance.now() - signalStart;
-        const card = app.querySelector(".signal-card");
-        if (signal === "go" && tapped) {
-          results.decision.times.push(elapsed);
-          card.textContent = `${rounded(elapsed)}`;
-        } else if (signal === "go" && !tapped) {
-          results.decision.misses += 1;
-          card.textContent = "慢";
-        } else if (signal === "stop" && tapped) {
-          results.decision.falseTaps += 1;
-          card.textContent = "急";
-        } else {
-          results.decision.correctRed += 1;
-          card.textContent = "稳";
-        }
+        completed = true;
+        let success = false;
+        if (signal === "go" && tapped) { results.decision.times.push(elapsed); success = true; }
+        else if (signal === "go") results.decision.misses += 1;
+        else if (tapped) results.decision.falseTaps += 1;
+        else { results.decision.correctRed += 1; success = true; }
+        const now = performance.now();
+        setChallenge({ resolved: true, resolvedAt: now, outcome: success ? "success" : "miss", shot: tapped, firedAt: tapped ? now : null, impactKind: success ? "hit" : "miss" }, now);
+        actionFeedback(tapped ? ["shot", success ? "hit" : "miss"] : [success ? "confirm" : "miss"], { gesture: tapped, power: tapped ? .75 : .4, outcome: success ? "success" : "miss" });
+        showMetricResult(signal === "go" ? tapped ? `击落 · ${rounded(elapsed)}ms` : "漏过敌机" : tapped ? "误伤友机" : "正确停火");
         index += 1;
-        if (index < sequence.length) schedule(showSignal, 210);
-        else schedule(finish, 500);
+        if (index < sequence.length) schedule(showSignal, 430);
+        else schedule(() => {
+          const correct = results.decision.times.length + results.decision.correctRed;
+          const avg = average(results.decision.times);
+          showLevelResult({ stamp: `${rounded(correct / sequence.length * 100)}%`, meta: `敌我识别正确率 · 敌机平均 ${results.decision.times.length ? `${rounded(avg)}ms` : "未命中"} · 误伤 ${results.decision.falseTaps}`, color: correct >= 8 ? "var(--green)" : "var(--orange)" });
+        }, 650);
       }
     };
-
-    const finish = () => {
-      const correct = results.decision.times.length + results.decision.correctRed;
-      const accuracy = (correct / sequence.length) * 100;
-      const avg = average(results.decision.times);
-      const avgLabel = results.decision.times.length ? `${rounded(avg)}ms` : "未命中";
-      const accuracyScore = DECISION_ACCURACY_SCORES[correct] || 0;
-      const speedScore = results.decision.times.length ? scoreByAnchors(avg, SCORE_ANCHORS.decisionSpeed) : 0;
-      const previewScore = accuracyScore * .65 + speedScore * .35;
-      showLevelResult({
-        stamp: `${rounded(accuracy)}%`,
-        meta: `判断正确率 · 绿色平均 ${avgLabel} · 误触 ${results.decision.falseTaps}`,
-        color: previewScore >= 75 ? "var(--green)" : previewScore >= 60 ? "var(--yellow)" : "var(--orange)",
-      });
-    };
-
     showSignal();
   }
 
   function runTiming() {
-    clearActivity();
-    const total = 3;
+    const total = 3, impactProgress = .78;
     let round = 0;
-
     const beginRound = () => {
       clearActivity();
-      const duration = random(1250, 1750);
-      const startTime = performance.now() + random(250, 550);
-      const idealElapsed = duration * ((76 - 10) / (94 - 10));
+      const duration = random(1400, 1900);
+      let startAt = performance.now() + 700;
       let completed = false;
-      playShell(
-        `<div class="center-content">
-          <div class="metric-result-overlay" data-metric-result role="status" aria-live="polite"></div>
-          <p class="support-text">圆点与靶心重合时点击</p>
-          <div class="track-zone">
-            <div class="track-line"></div>
-            <div class="target-ring"></div>
-            <div class="moving-dot" data-moving-dot></div>
-          </div>
-        </div>`,
-        { round: round + 1, total, status: "READY", note: "重合的一瞬间点击" },
-      );
-
+      playShell("", {
+        round: round + 1, total, status: "INCOMING", sceneTag: "02 / IMPACT PARRY", sceneTitle: "迎面拦截能量刃",
+        note: "观察纵深距离，在能量刃接触前方护盾时格挡", actionHint: "接触护盾的瞬间 · 点击格挡", sceneState: { startAt, duration, impactProgress, resolved: false },
+      });
+      startAt = performance.now() + 750;
+      setChallenge({ startAt });
       animate((now) => {
-        if (completed || now < startTime) return !completed;
-        const elapsed = now - startTime;
-        const progress = clamp(elapsed / duration, 0, 1);
-        const left = 10 + progress * 84;
-        const dot = app.querySelector("[data-moving-dot]");
-        if (dot) dot.style.left = `${left}%`;
-        const status = app.querySelector("[data-status]");
-        if (status) status.textContent = "BLOCK";
-        if (progress >= 1) resolve(duration - idealElapsed + 350);
-        return progress < 1;
+        if (completed) return false;
+        if (now - startAt > duration + 250) { resolve(duration * (1 - impactProgress) + 250, true); return false; }
       });
-
-      bindPointer("[data-play-area]", () => {
+      bindPointer("[data-play-area]", () => { if (!completed) resolve(performance.now() - startAt - duration * impactProgress); });
+      function resolve(error, missed = false) {
         if (completed) return;
-        const error = performance.now() - startTime - idealElapsed;
-        resolve(error);
-      });
-
-      function resolve(error) {
-        if (completed) return;
-        completed = true;
+        const now = performance.now(); completed = true;
         const absError = Math.abs(error);
         results.timing.errors.push(absError);
         if (absError <= 20) results.timing.perfect += 1;
+        const success = absError <= 80 && !missed;
+        setChallenge({ resolved: true, resolvedAt: now, frozenProgress: clamp((now - startAt) / duration, 0, 1.3), outcome: success ? "success" : "miss", blockAttempt: !missed, impactKind: "block" }, now);
+        actionFeedback(missed ? ["fail"] : success ? absError <= 20 ? ["block", "perfect"] : ["block"] : ["block", "miss"], { gesture: !missed, power: success ? .9 : .45, outcome: success ? "success" : "miss", perfect: absError <= 20 });
+        setStageStatus(absError <= 20 ? "PERFECT" : absError <= 45 ? "GREAT" : absError <= 80 ? "BLOCK" : "MISS");
+        showMetricResult(missed ? "未格挡 · 能量刃穿过防线" : `${error < 0 ? "提前" : "晚了"} ${rounded(absError)}ms`);
         round += 1;
-        const status = absError <= 20 ? "PERFECT" : absError <= 45 ? "GREAT" : absError <= 80 ? "GOOD" : "MISS";
-        const statusEl = app.querySelector("[data-status]");
-        if (statusEl) statusEl.textContent = status;
-        showMetricResult(`${error < 0 ? "早" : "晚"}了 ${rounded(absError)}ms`);
-        if (round < total) schedule(beginRound, 650);
-        else schedule(finish, 700);
+        if (round < total) schedule(beginRound, 950);
+        else schedule(() => {
+          const avg = average(results.timing.errors);
+          showLevelResult({ stamp: `±${rounded(avg)}ms`, meta: `护盾接触时机误差 · PERFECT ${results.timing.perfect} / ${total}`, color: avg <= 45 ? "var(--green)" : avg <= 80 ? "var(--yellow)" : "var(--orange)" });
+        }, 1000);
       }
     };
-
-    const finish = () => {
-      const avg = average(results.timing.errors);
-      showLevelResult({
-        stamp: `±${rounded(avg)}ms`,
-        meta: `平均时机误差 · PERFECT ${results.timing.perfect} / ${total}`,
-        color: avg <= 45 ? "var(--green)" : avg <= 80 ? "var(--yellow)" : "var(--orange)",
-      });
-    };
-
     beginRound();
   }
 
   function runPrediction() {
-    clearActivity();
     const total = 3;
     let round = 0;
-
     const beginRound = () => {
       clearActivity();
-      const duration = random(1750, 2350);
-      const startTime = performance.now() + random(280, 560);
-      const hideElapsed = duration * ((50 - 5) / (90 - 5));
+      const duration = random(2300, 2900), hideElapsed = duration * .5;
+      let startAt = performance.now() + 700;
       let completed = false;
-      let hidden = false;
-      playShell(
-        `<div class="center-content">
-          <p class="support-text">进入蓝区后，猜它何时到终点</p>
-          <div class="track-zone prediction-zone" data-prediction-track>
-            <div class="track-line"></div>
-            <div class="target-ring"></div>
-            <div class="moving-dot" data-moving-dot></div>
-            <div class="cover-zone" data-cover-zone>NO VISION</div>
-            <div class="prediction-position-label" data-position-label>点击时位置</div>
-          </div>
-        </div>`,
-        { round: round + 1, total, status: "WATCH", note: "目标消失后，预判到达时间" },
-      );
-
-      animate((now) => {
-        if (completed || now < startTime) return !completed;
-        const elapsed = now - startTime;
-        const progress = clamp(elapsed / duration, 0, 1);
-        const left = 5 + progress * 85;
-        const dot = app.querySelector("[data-moving-dot]");
-        if (dot) {
-          dot.style.left = `${left}%`;
-          if (elapsed >= hideElapsed) {
-            hidden = true;
-            dot.style.visibility = "hidden";
-          }
-        }
-        const status = app.querySelector("[data-status]");
-        if (status) status.textContent = hidden ? "PREDICT" : "WATCH";
-        if (elapsed > duration + 650) resolve(650, true, false, duration + 650);
-        return elapsed <= duration + 650;
+      playShell("", {
+        round: round + 1, total, status: "TRACKING", sceneTag: "04 / BLIND SHOT", sceneTitle: "追踪运输机",
+        note: "进入机库后失去视野，预判它穿过右侧准星的时刻", actionHint: "进入盲区后 · 预判出口开火", sceneState: { startAt, duration, resolved: false },
       });
-
+      startAt = performance.now() + 750;
+      setChallenge({ startAt });
+      animate((now) => {
+        if (completed) return false;
+        const elapsed = now - startAt;
+        const hidden = elapsed >= hideElapsed;
+        const area = app.querySelector("[data-play-area]");
+        area.dataset.occluded = String(hidden);
+        setStageStatus(hidden ? "NO VISUAL" : "TRACKING");
+        if (elapsed > duration + 650) { resolve(650, true, false, elapsed); return false; }
+      });
       bindPointer("[data-play-area]", () => {
         if (completed) return;
-        const elapsed = performance.now() - startTime;
-        if (elapsed < hideElapsed) {
-          resolve(elapsed - duration, false, true, elapsed);
-          return;
-        }
-        resolve(elapsed - duration, false, false, elapsed);
+        const elapsed = performance.now() - startAt;
+        resolve(elapsed - duration, false, elapsed < hideElapsed, elapsed);
       });
-
-      function resolve(error, missed = false, early = false, actualElapsed = duration + error) {
+      function resolve(error, missed, early, elapsed) {
         if (completed) return;
         completed = true;
         if (missed) results.prediction.misses += 1;
-        results.prediction.errors.push(early ? 800 : Math.abs(error));
-        revealFinalPosition(actualElapsed);
+        const absError = early ? 800 : Math.abs(error);
+        results.prediction.errors.push(absError);
+        const now = performance.now(), success = !early && absError <= 140;
+        setChallenge({ resolved: true, resolvedAt: now, frozenProgress: Math.max(0, elapsed / duration), outcome: success ? "success" : "miss", shot: !missed, firedAt: missed ? null : now, impactKind: success ? "hit" : "miss" }, now);
+        actionFeedback(missed ? ["miss"] : ["shot", success ? "hit" : "miss"], { gesture: !missed, power: .8, outcome: success ? "success" : "miss" });
+        setStageStatus(early ? "TOO EARLY" : absError <= 40 ? "PERFECT" : absError <= 80 ? "GREAT" : absError <= 140 ? "HIT" : "MISS");
+        setStageText("机库轨迹已揭示", "开火时的位置与出口误差已记录");
+        showMetricResult(early ? "目标还没进入盲区" : missed ? "错过出口时机" : `${error < 0 ? "提前" : "晚了"} ${rounded(Math.abs(error))}ms`);
         round += 1;
-        const status = app.querySelector("[data-status]");
-        const absError = Math.abs(error);
-        if (status) status.textContent = early ? "TOO EARLY" : missed ? "MISS" : absError <= 40 ? "PERFECT" : absError <= 80 ? "GREAT" : absError <= 140 ? "GOOD" : "MISS";
-        const support = app.querySelector(".support-text");
-        if (support) support.textContent = early ? "目标还没消失，不能开枪" : missed ? "晚了，目标已经到达" : `${error < 0 ? "提前" : "晚了"} ${rounded(Math.abs(error))}ms`;
-        if (round < total) schedule(beginRound, 700);
-        else schedule(finish, 700);
-      }
-
-      function revealFinalPosition(actualElapsed) {
-        const track = app.querySelector("[data-prediction-track]");
-        const cover = app.querySelector("[data-cover-zone]");
-        const dot = app.querySelector("[data-moving-dot]");
-        const label = app.querySelector("[data-position-label]");
-        const beforeTarget = actualElapsed <= duration;
-        const finalLeft = beforeTarget
-          ? 5 + clamp(actualElapsed / duration, 0, 1) * 85
-          : 90 + clamp((actualElapsed - duration) / 650, 0, 1) * 6;
-
-        if (track) track.classList.add("is-revealed");
-        if (cover) {
-          cover.classList.add("is-revealed");
-          cover.textContent = "轨迹已揭示";
-        }
-        if (dot) {
-          dot.style.left = `${finalLeft}%`;
-          dot.style.visibility = "visible";
-          dot.classList.add("prediction-final-dot");
-        }
-        if (label) {
-          label.style.left = `${clamp(finalLeft, 18, 82)}%`;
-          label.textContent = beforeTarget ? "点击时位置" : "点击时已过终点";
-          label.classList.add("is-visible");
-        }
+        if (round < total) schedule(beginRound, 1050);
+        else schedule(() => {
+          const avg = average(results.prediction.errors);
+          showLevelResult({ stamp: `±${rounded(avg)}ms`, meta: `出口射击误差 · 最佳 ${rounded(Math.min(...results.prediction.errors))}ms · MISS ${results.prediction.misses}`, color: avg <= 80 ? "var(--green)" : avg <= 140 ? "var(--yellow)" : "var(--orange)" });
+        }, 1100);
       }
     };
-
-    const finish = () => {
-      const avg = average(results.prediction.errors);
-      const best = Math.min(...results.prediction.errors);
-      showLevelResult({
-        stamp: `±${rounded(avg)}ms`,
-        meta: `平均预判误差 · 最佳 ${rounded(best)}ms · MISS ${results.prediction.misses}`,
-        color: avg <= 80 ? "var(--green)" : avg <= 140 ? "var(--yellow)" : "var(--orange)",
-      });
-    };
-
     beginRound();
   }
 
   function runAttention() {
-    clearActivity();
     const counts = [4, 6, 9, 12];
     let round = 0;
-
     const beginRound = () => {
       clearActivity();
-      const count = counts[round];
-      const cols = count === 4 ? 2 : count === 12 ? 4 : 3;
-      const changedIndex = Math.floor(Math.random() * count);
-      let changed = false;
-      let completed = false;
-      let changedAt = 0;
-      const dots = Array.from({ length: count }, (_, index) => `<div class="attention-dot" data-dot="${index}"></div>`).join("");
-      playShell(
-        `<div class="center-content">
-          <div class="metric-result-overlay" data-metric-result role="status" aria-live="polite"></div>
-          <p class="support-text">变化出现就点屏幕</p>
-          <div class="attention-grid" style="--cols:${cols}">${dots}</div>
-        </div>`,
-        { round: round + 1, total: counts.length, status: `${count} TARGETS`, note: "看全局 · 发现变化就点" },
-      );
-
-      schedule(() => {
-        onNextFrame((now) => {
-          const dot = app.querySelector(`[data-dot="${changedIndex}"]`);
-          if (!dot || completed) return;
-          changedAt = now;
-          changed = true;
-          dot.classList.add("changed");
-          const status = app.querySelector("[data-status]");
-          if (status) status.textContent = "CHANGED";
-          schedule(() => resolve(false), 1350);
-        });
-      }, random(700, 1450));
-
-      bindPointer("[data-play-area]", () => resolve(true));
-
-      function resolve(tapped) {
+      const count = counts[round], changedIndex = Math.floor(Math.random() * count);
+      let changed = false, completed = false, changedAt = 0, selectedIndex = -1;
+      playShell("", {
+        round: round + 1, total: counts.length, status: `${count} SENTRIES`, sceneTag: "05 / TOWER DEFENCE", sceneTitle: "扫描立体防线",
+        note: "点中变红并展开武器的入侵哨塔", actionHint: "瞄准入侵哨塔 · 直接点击目标", actionDetail: "方向键选择 / 空格射击", sceneState: { count, changedIndex: -1, selectedIndex: -1, resolved: false },
+      });
+      const area = app.querySelector("[data-play-area]");
+      const select = (event) => {
+        if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key) || completed) return;
+        event.preventDefault();
+        const backwards = event.key === "ArrowLeft" || event.key === "ArrowUp";
+        selectedIndex = selectedIndex < 0 ? backwards ? count - 1 : 0 : (selectedIndex + (backwards ? -1 : 1) + count) % count;
+        setChallenge({ selectedIndex });
+        const detail = app.querySelector("[data-action-detail]");
+        if (detail) detail.textContent = `已选择 ${selectedIndex + 1} 号哨塔 · 空格射击`;
+      };
+      area.addEventListener("keydown", select);
+      cleanupTasks.push(() => area.removeEventListener("keydown", select));
+      schedule(() => onNextFrame((now) => {
         if (completed) return;
-        if (!changed && tapped) {
-          completed = true;
-          results.attention.early += 1;
-          results.attention.misses += 1;
-          const status = app.querySelector("[data-status]");
-          if (status) status.textContent = "TOO EARLY";
-          showMetricResult("提前点击");
-        } else if (changed && tapped) {
-          completed = true;
-          const reaction = performance.now() - changedAt;
-          results.attention.times.push(reaction);
-          const status = app.querySelector("[data-status]");
-          if (status) status.textContent = `${rounded(reaction)}MS`;
-          showMetricResult(`发现用了 ${rounded(reaction)}ms`);
-        } else if (changed && !tapped) {
-          completed = true;
-          results.attention.misses += 1;
-          const status = app.querySelector("[data-status]");
-          if (status) status.textContent = "MISS";
-          showMetricResult("MISS · 没看到");
-        } else return;
-
+        setChallenge({ changedIndex }, now);
+        changedAt = performance.now(); changed = true;
+        area.dataset.changedTarget = String(changedIndex);
+        setStageStatus("INTRUSION"); setStageText("发现入侵！", "点中红色武装哨塔");
+        schedule(() => resolve(-1, false), 2200);
+      }), random(900, 1600));
+      bindPointer("[data-play-area]", (event) => {
+        if (completed) return;
+        if (event.type === "keydown" && selectedIndex < 0) { setActionHint("先用方向键选择哨塔，再按空格开火"); return; }
+        const target = event.type === "keydown" ? selectedIndex : challengeScene.hitTest(event.clientX, event.clientY);
+        resolve(target, true);
+      });
+      function resolve(target, tapped) {
+        if (completed) return;
+        const reaction = performance.now() - changedAt;
+        completed = true;
+        const success = changed && tapped && target === changedIndex;
+        if (success) results.attention.times.push(reaction);
+        else { results.attention.misses += 1; if (!changed) results.attention.early += 1; }
+        const now = performance.now();
+        setChallenge({ resolved: true, resolvedAt: now, outcome: success ? "success" : "miss", hitIndex: target, shot: tapped, firedAt: tapped ? now : null, impactKind: success ? "hit" : "miss" }, now);
+        actionFeedback(tapped ? ["shot", success ? "hit" : "miss"] : ["miss"], { gesture: tapped, power: .75, outcome: success ? "success" : "miss" });
+        setStageStatus(success ? "NEUTRALISED" : "MISS");
+        showMetricResult(success ? `入侵解除 · ${rounded(reaction)}ms` : !changed ? "提前开火" : tapped ? "没有击中入侵者" : "入侵者突破防线");
         round += 1;
-        if (round < counts.length) schedule(beginRound, 600);
-        else schedule(finish, 650);
+        if (round < counts.length) schedule(beginRound, 950);
+        else schedule(() => {
+          const avg = average(results.attention.times);
+          const hitScore = ATTENTION_HIT_SCORES[results.attention.times.length] || 0;
+          const speedScore = results.attention.times.length ? scoreByAnchors(avg, SCORE_ANCHORS.attentionSpeed) : 0;
+          const preview = hitScore * .55 + speedScore * .45;
+          showLevelResult({ stamp: results.attention.times.length ? `${rounded(avg)}ms` : "MISS", meta: `定位并击中入侵者 · 命中 ${results.attention.times.length} / ${counts.length}`, color: preview >= 75 ? "var(--green)" : preview >= 60 ? "var(--yellow)" : "var(--orange)" });
+        }, 1000);
       }
     };
-
-    const finish = () => {
-      const avg = average(results.attention.times);
-      const hitScore = ATTENTION_HIT_SCORES[results.attention.times.length] || 0;
-      const speedScore = results.attention.times.length ? scoreByAnchors(avg, SCORE_ANCHORS.attentionSpeed) : 0;
-      const previewScore = hitScore * .55 + speedScore * .45;
-      showLevelResult({
-        stamp: results.attention.times.length ? `${rounded(avg)}ms` : "MISS",
-        meta: `变化平均发现速度 · MISS ${results.attention.misses} / ${counts.length}`,
-        color: previewScore >= 75 ? "var(--green)" : previewScore >= 60 ? "var(--yellow)" : "var(--orange)",
-      });
-    };
-
     beginRound();
   }
 
   function runPressure() {
     clearActivity();
-    const targetMs = 6660;
-    const hideAtMs = 4000;
-    const limitMs = 10000;
-    const startDelay = 650;
-    const startAt = performance.now() + startDelay;
-    let started = false;
-    let completed = false;
-
-    playShell(
-      `<div class="center-content">
-        <span class="stopwatch-label">目标 / 6.66 秒</span>
-        <div class="stopwatch-number" data-stopwatch-number>0.00</div>
-        <p class="support-text">点击屏幕停表 · 只有一次机会</p>
-      </div>`,
-      { round: 1, total: 1, status: "READY", note: "尽量停在 6.66 秒" },
-    );
-
+    const targetMs = 6660, hideAtMs = 4000, limitMs = 10000;
+    let startAt = performance.now() + 1000;
+    let started = false, completed = false;
+    playShell('<span class="scene-a11y" data-stopwatch-number>0.00</span>', {
+      round: 1, total: 1, status: "ARMING", sceneTag: "06 / CORE DISARM", sceneTitle: "在 6.66 秒拆除核心",
+      note: "装置数码屏将在 4 秒熄灭，之后凭时间感拆弹", actionHint: "点击拆弹开关 · 只有一次机会", actionDetail: "目标 6.66 秒 / 屏幕熄灭后继续心算", sceneState: { startAt, resolved: false },
+    });
+    startAt = performance.now() + 1000;
+    setChallenge({ startAt });
     animate((now) => {
       if (completed) return false;
       if (now < startAt) return true;
       started = true;
       const elapsed = Math.min(now - startAt, limitMs);
-      updateStopwatch(elapsed);
-      if (elapsed >= limitMs) {
-        resolve(limitMs, true);
-        return false;
-      }
-      return true;
-    });
-
-    bindPointer("[data-play-area]", () => {
-      if (!started || completed) return;
-      resolve(Math.min(performance.now() - startAt, limitMs), false);
-    });
-
-    function updateStopwatch(elapsed, reveal = false) {
       const number = app.querySelector("[data-stopwatch-number]");
-      const status = app.querySelector("[data-status]");
-      if (number) {
-        const concealed = !reveal && elapsed >= hideAtMs;
-        number.textContent = (elapsed / 1000).toFixed(2);
-        number.classList.toggle("is-concealed", concealed);
-        number.setAttribute("aria-hidden", concealed ? "true" : "false");
-      }
-      if (status) status.textContent = elapsed < targetMs ? "HOLD" : "LATE";
-    }
-
+      number.textContent = elapsed >= hideAtMs ? "计时已隐藏" : (elapsed / 1000).toFixed(2);
+      number.setAttribute("aria-hidden", String(elapsed >= hideAtMs));
+      setStageStatus(elapsed >= hideAtMs ? "TRUST YOURSELF" : "CHARGING");
+      if (elapsed >= limitMs) { resolve(limitMs, true); return false; }
+    });
+    bindPointer("[data-play-area]", () => { if (started && !completed) resolve(Math.min(performance.now() - startAt, limitMs), false); });
     function resolve(stoppedAt, missed) {
       if (completed) return;
       completed = true;
-      updateStopwatch(stoppedAt, true);
       const error = Math.abs(stoppedAt - targetMs);
-      results.pressure.errors.push(error);
-      results.pressure.stoppedAt = stoppedAt;
-      if (missed) {
-        results.pressure.misses += 1;
-        results.pressure.timedOut = true;
-      }
-
-      const status = app.querySelector("[data-status]");
-      const support = app.querySelector(".support-text");
-      const rating = error <= 30 ? "PERFECT" : error <= 80 ? "GREAT" : error <= 200 ? "GOOD" : "MISS";
-      if (status) status.textContent = missed ? "FAIL" : rating;
-      if (support) {
-        if (missed) support.textContent = "失败了 · 10.00 秒仍未点击";
-        else support.textContent = `${stoppedAt < targetMs ? "提前" : "晚了"} ${(error / 1000).toFixed(2)} 秒`;
-      }
-
-      schedule(() => {
-        const stoppedLabel = (stoppedAt / 1000).toFixed(2);
-        const direction = stoppedAt < targetMs ? "提前" : stoppedAt > targetMs ? "晚了" : "正中目标";
-        showLevelResult({
-          stamp: `${stoppedLabel}s`,
-          meta: missed
-            ? "10.00 秒仍未点击 · 本关失败"
-            : `目标 6.66 秒 · ${direction}${error ? ` ${(error / 1000).toFixed(2)} 秒` : ""}`,
-          color: error <= 80 ? "var(--green)" : error <= 200 ? "var(--yellow)" : "var(--orange)",
-        });
-      }, 800);
+      results.pressure.errors.push(error); results.pressure.stoppedAt = stoppedAt;
+      if (missed) { results.pressure.misses += 1; results.pressure.timedOut = true; }
+      const outcome = !missed && error <= 200 ? "success" : "miss";
+      const now = performance.now();
+      setChallenge({ resolved: true, resolvedAt: now, frozenElapsed: stoppedAt, outcome, disarmPressed: !missed, impactKind: "disarm" }, now);
+      actionFeedback(missed ? ["fail"] : ["switch", outcome === "success" ? "disarm" : "fail"], { gesture: !missed, power: outcome === "success" ? .8 : .6, outcome });
+      setStageStatus(outcome === "success" ? "DISARMED" : "FAIL");
+      const number = app.querySelector("[data-stopwatch-number]");
+      number.textContent = (stoppedAt / 1000).toFixed(2); number.setAttribute("aria-hidden", "false");
+      showMetricResult(`${(stoppedAt / 1000).toFixed(2)} 秒 · ${missed ? "超时" : stoppedAt < targetMs ? "提前" : "晚了"} ${(error / 1000).toFixed(2)}s`);
+      schedule(() => showLevelResult({ stamp: `${(stoppedAt / 1000).toFixed(2)}s`, meta: missed ? "10 秒仍未拆弹 · 本关失败" : `核心拆除时机 · 目标 6.66 秒 · 误差 ${(error / 1000).toFixed(2)} 秒`, color: error <= 80 ? "var(--green)" : error <= 200 ? "var(--yellow)" : "var(--orange)" }), 1200);
     }
   }
 
@@ -1090,92 +1042,280 @@
     canvas.width = 1080;
     canvas.height = 1440;
     const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas 2D is unavailable");
     const colors = {
-      paper: "#FFF6EA",
-      ink: "#000000",
-      white: "#FFFFFF",
-      orange: "#FF6B35",
-      blue: "#004E89",
-      yellow: "#F7C548",
-      pink: "#FF8FD4",
-      green: "#3ECF8E",
+      background: "#050508",
+      panel: "#0C0C16",
+      ink: "#F4F8FF",
+      muted: "#A3A9C3",
+      line: "rgba(0, 255, 255, .24)",
+      cyan: "#00FFFF",
+      magenta: "#FF00FF",
+      yellow: "#FFFF00",
+      pink: "#FF1493",
+      violet: "#7C5CFF",
     };
+    const sans = '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
+    const mono = 'Menlo, Consolas, "Courier New", monospace';
     const abilities = [
-      ["反应", scores.reaction, colors.green],
-      ["判断", scores.decision, colors.orange],
+      ["反应", scores.reaction, colors.cyan],
+      ["判断", scores.decision, colors.magenta],
       ["时机", scores.timing, colors.yellow],
-      ["预判", scores.prediction, colors.blue],
+      ["预判", scores.prediction, colors.violet],
       ["专注", scores.attention, colors.pink],
     ];
 
-    context.fillStyle = colors.paper;
+    function polygon(points, fill, stroke = colors.line, glow = 0) {
+      context.save();
+      context.shadowColor = stroke;
+      context.shadowBlur = glow;
+      context.beginPath();
+      points.forEach(([x, y], index) => {
+        if (index === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      });
+      context.closePath();
+      context.fillStyle = fill;
+      context.fill();
+      context.strokeStyle = stroke;
+      context.lineWidth = 2;
+      context.stroke();
+      context.restore();
+    }
+
+    function fitLine(text, x, y, maxWidth, size, weight = 600, family = sans) {
+      let fittedSize = size;
+      context.font = `${weight} ${fittedSize}px ${family}`;
+      while (context.measureText(text).width > maxWidth && fittedSize > 14) {
+        fittedSize -= 1;
+        context.font = `${weight} ${fittedSize}px ${family}`;
+      }
+      context.fillText(text, x, y);
+    }
+
+    function fitParagraph(text, x, y, maxWidth, maxHeight) {
+      let fontSize = 29;
+      let lines;
+      let lineHeight;
+      do {
+        context.font = `500 ${fontSize}px ${sans}`;
+        lineHeight = Math.ceil(fontSize * 1.45);
+        lines = [];
+        let line = "";
+        Array.from(text).forEach((character) => {
+          if (character === "\n") {
+            lines.push(line);
+            line = "";
+          } else if (line && context.measureText(line + character).width > maxWidth) {
+            lines.push(line);
+            line = character;
+          } else {
+            line += character;
+          }
+        });
+        if (line) lines.push(line);
+        if (lines.length * lineHeight <= maxHeight) break;
+        fontSize -= 1;
+      } while (fontSize > 14);
+      lines.forEach((line, index) => context.fillText(line, x, y + index * lineHeight));
+    }
+
+    const background = context.createLinearGradient(0, 0, 1080, 1440);
+    background.addColorStop(0, "#131025");
+    background.addColorStop(.44, colors.background);
+    background.addColorStop(1, "#100919");
+    context.fillStyle = background;
     context.fillRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = colors.pink;
-    context.fillRect(890, 80, 190, 190);
-    context.fillStyle = colors.yellow;
-    context.beginPath();
-    context.arc(30, 1190, 145, 0, Math.PI * 2);
-    context.fill();
+    const edgeGlow = context.createRadialGradient(1080, 770, 40, 1080, 770, 640);
+    edgeGlow.addColorStop(0, "rgba(255, 0, 255, .1)");
+    edgeGlow.addColorStop(1, "rgba(255, 0, 255, 0)");
+    context.fillStyle = edgeGlow;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = "rgba(190, 195, 255, .025)";
+    for (let y = 56; y < 1390; y += 7) context.fillRect(50, y, 980, 1);
+    context.strokeStyle = colors.line;
+    context.lineWidth = 2;
+    context.strokeRect(48, 48, 984, 1344);
+    context.fillStyle = colors.cyan;
+    context.fillRect(48, 48, 182, 5);
+    context.fillRect(48, 48, 5, 77);
+    context.fillStyle = colors.magenta;
+    context.fillRect(846, 1387, 186, 5);
+    context.fillRect(1027, 1315, 5, 77);
+    polygon([[858, 48], [889, 48], [874, 66], [843, 66]], colors.yellow, colors.yellow);
+    polygon([[900, 48], [931, 48], [916, 66], [885, 66]], colors.yellow, colors.yellow);
 
-    context.fillStyle = colors.white;
-    context.strokeStyle = colors.ink;
-    context.lineWidth = 12;
-    context.fillRect(58, 62, 964, 1316);
-    context.strokeRect(58, 62, 964, 1316);
-
-    context.fillStyle = colors.ink;
-    context.font = "900 32px ui-monospace, monospace";
     context.textAlign = "left";
-    context.fillText("能打职业吗你？", 105, 130);
+    context.fillStyle = colors.magenta;
+    context.font = `italic 900 32px ${sans}`;
+    context.fillText("能打职业吗你？", 99, 118);
+    context.fillStyle = colors.ink;
+    context.fillText("能打职业吗你？", 96, 116);
     context.textAlign = "right";
-    context.fillText("PRO TEST GAME", 975, 130);
+    context.fillStyle = colors.cyan;
+    context.font = `700 20px ${mono}`;
+    context.fillText("PRO TEST / NEON ARENA", 984, 113);
+    context.strokeStyle = colors.line;
+    context.beginPath();
+    context.moveTo(96, 151);
+    context.lineTo(984, 151);
+    context.stroke();
 
-    context.fillStyle = colors.yellow;
-    context.fillRect(105, 180, 370, 350);
-    context.strokeRect(105, 180, 370, 350);
-    context.fillStyle = colors.ink;
+    // The share image stays local: projected geometry is drawn directly on Canvas.
+    const glow = context.createRadialGradient(802, 341, 12, 802, 341, 226);
+    glow.addColorStop(0, "rgba(255, 0, 255, .28)");
+    glow.addColorStop(.58, "rgba(0, 255, 255, .07)");
+    glow.addColorStop(1, "rgba(0, 255, 255, 0)");
+    context.fillStyle = glow;
+    context.fillRect(586, 163, 410, 405);
+    context.strokeStyle = "rgba(0, 255, 255, .17)";
+    context.lineWidth = 1;
+    for (let index = 0; index <= 6; index += 1) {
+      context.beginPath();
+      context.moveTo(795, 310);
+      context.lineTo(610 + index * 64, 560);
+      context.stroke();
+    }
+    [409, 438, 476, 521, 560].forEach((y) => {
+      context.beginPath();
+      context.moveTo(616, y);
+      context.lineTo(984, y);
+      context.stroke();
+    });
+    context.fillStyle = "rgba(0, 0, 0, .36)";
+    context.beginPath();
+    context.ellipse(796, 505, 162, 42, 0, 0, Math.PI * 2);
+    context.fill();
+    polygon([[644, 447], [802, 514], [802, 536], [644, 469]], "#063C49", colors.cyan, 12);
+    polygon([[802, 514], [948, 445], [948, 467], [802, 536]], "#3A073D", colors.magenta, 12);
+    polygon([[644, 447], [788, 383], [948, 445], [802, 514]], "#15112A", "#7751BE");
+    polygon([[677, 446], [790, 397], [914, 445], [801, 497]], "#0B101D", colors.cyan, 10);
+    context.save();
+    context.shadowColor = colors.cyan;
+    context.shadowBlur = 18;
+    context.strokeStyle = colors.cyan;
+    context.lineWidth = 4;
+    context.beginPath();
+    context.moveTo(644, 447);
+    context.lineTo(802, 514);
+    context.stroke();
+    context.shadowColor = colors.magenta;
+    context.strokeStyle = colors.magenta;
+    context.beginPath();
+    context.moveTo(802, 514);
+    context.lineTo(948, 445);
+    context.stroke();
+    context.restore();
+    context.fillStyle = "rgba(0, 0, 0, .34)";
+    context.beginPath();
+    context.ellipse(802, 438, 71, 19, 0, 0, Math.PI * 2);
+    context.fill();
+    const coreFace = context.createLinearGradient(738, 265, 807, 381);
+    coreFace.addColorStop(0, "#04E4ED");
+    coreFace.addColorStop(1, "#08537D");
+    polygon([[738, 268], [805, 299], [805, 381], [738, 349]], coreFace, colors.cyan, 24);
+    const coreSide = context.createLinearGradient(805, 299, 866, 350);
+    coreSide.addColorStop(0, "#B31ED4");
+    coreSide.addColorStop(1, "#3D096B");
+    polygon([[805, 299], [866, 268], [866, 350], [805, 381]], coreSide, colors.magenta, 24);
+    polygon([[738, 268], [799, 240], [866, 268], [805, 299]], "#E9FF2F", colors.yellow, 20);
+    context.strokeStyle = "#CAFFFF";
+    context.lineWidth = 3;
+    context.beginPath();
+    context.moveTo(758, 299);
+    context.lineTo(785, 312);
+    context.lineTo(785, 345);
+    context.stroke();
+    const satellite = context.createRadialGradient(910, 212, 1, 919, 221, 21);
+    satellite.addColorStop(0, "#FFE2FA");
+    satellite.addColorStop(.5, colors.pink);
+    satellite.addColorStop(1, "#780F78");
+    context.save();
+    context.shadowColor = colors.pink;
+    context.shadowBlur = 23;
+    context.fillStyle = satellite;
+    context.beginPath();
+    context.arc(919, 221, 20, 0, Math.PI * 2);
+    context.fill();
+    context.restore();
+    context.strokeStyle = colors.yellow;
+    context.lineWidth = 2;
+    context.beginPath();
+    context.ellipse(802, 339, 137, 43, -.35, Math.PI * .9, Math.PI * 1.92);
+    context.stroke();
+    context.fillStyle = colors.cyan;
     context.textAlign = "center";
-    context.font = "900 34px ui-monospace, monospace";
-    context.fillText("职业指数", 290, 245);
-    context.font = "1000 190px ui-monospace, monospace";
-    context.fillText(String(scores.career), 290, 435);
-    context.font = "900 30px ui-monospace, monospace";
-    context.fillText("/ 100", 290, 488);
+    context.font = `500 17px ${mono}`;
+    context.fillText("POTENTIAL CORE / 06", 802, 577);
 
-    context.fillStyle = colors.ink;
     context.textAlign = "left";
-    context.font = "1000 62px sans-serif";
-    drawWrappedText(context, rank, 530, 285, 400, 72, 2);
-    context.font = "800 28px sans-serif";
-    context.fillText("我的电竞天赋报告", 530, 410);
-    context.fillStyle = colors.green;
-    context.fillRect(530, 446, 360, 18);
-    context.strokeRect(530, 446, 360, 18);
+    context.fillStyle = colors.yellow;
+    context.font = `800 26px ${sans}`;
+    context.fillText("职业指数", 96, 223);
+    context.font = `italic 900 184px ${mono}`;
+    context.fillStyle = colors.magenta;
+    context.fillText(String(scores.career), 90, 410);
+    context.fillStyle = colors.cyan;
+    context.fillText(String(scores.career), 81, 402);
+    context.fillStyle = colors.ink;
+    context.fillText(String(scores.career), 84, 405);
+    context.fillStyle = colors.muted;
+    context.font = `400 27px ${mono}`;
+    context.fillText("/ 100", 439, 402);
+    context.fillStyle = colors.ink;
+    fitLine(rank, 96, 491, 510, 48, "italic 900");
+    context.fillStyle = colors.muted;
+    context.font = `400 25px ${sans}`;
+    context.fillText("我的电竞天赋报告", 96, 542);
+    context.fillStyle = colors.magenta;
+    context.fillRect(96, 576, 130, 4);
+    context.fillStyle = colors.cyan;
+    context.fillRect(236, 576, 34, 4);
 
     context.fillStyle = colors.ink;
-    context.font = "900 30px ui-monospace, monospace";
+    context.font = `900 25px ${sans}`;
+    context.fillText("五维能力", 96, 628);
+    context.textAlign = "right";
+    context.fillStyle = colors.muted;
+    context.font = `500 18px ${mono}`;
+    context.fillText("ABILITY PROFILE / 100", 984, 626);
     abilities.forEach(([name, score, color], index) => {
-      const y = 610 + index * 95;
+      const y = 690 + index * 70;
       context.textAlign = "left";
       context.fillStyle = colors.ink;
-      context.fillText(name, 108, y + 28);
-      context.fillStyle = colors.white;
-      context.fillRect(238, y, 620, 42);
-      context.strokeRect(238, y, 620, 42);
+      context.font = `500 28px ${sans}`;
+      context.fillText(name, 96, y);
+      context.fillStyle = "#1D1B33";
+      context.fillRect(240, y - 18, 640, 13);
+      context.save();
+      context.shadowColor = color;
+      context.shadowBlur = 11;
       context.fillStyle = color;
-      context.fillRect(244, y + 6, Math.max(0, 608 * score / 100), 30);
-      context.fillStyle = colors.ink;
+      context.fillRect(240, y - 18, 640 * clamp(score / 100, 0, 1), 13);
+      context.restore();
+      context.fillStyle = colors.background;
+      for (let segment = 1; segment < 20; segment += 1) {
+        context.fillRect(240 + segment * 32, y - 18, 3, 13);
+      }
       context.textAlign = "right";
-      context.fillText(String(score), 972, y + 30);
+      context.font = `italic 900 30px ${mono}`;
+      context.fillStyle = color;
+      context.fillText(String(score), 984, y + 1);
     });
 
-    context.fillStyle = colors.pink;
-    context.fillRect(105, 1080, 870, 112);
-    context.strokeRect(105, 1080, 870, 112);
-    context.fillStyle = colors.ink;
+    context.fillStyle = colors.panel;
+    context.fillRect(96, 1021, 888, 151);
+    context.strokeStyle = colors.line;
+    context.lineWidth = 2;
+    context.strokeRect(96, 1021, 888, 151);
+    context.fillStyle = colors.magenta;
+    context.fillRect(96, 1021, 3, 151);
     context.textAlign = "left";
-    context.font = "900 29px sans-serif";
-    drawWrappedText(context, verdict, 135, 1128, 810, 38, 2);
+    context.fillStyle = colors.cyan;
+    context.font = `500 18px ${mono}`;
+    context.fillText("训练场观察 / FIELD NOTES", 122, 1055);
+    context.fillStyle = colors.ink;
+    fitParagraph(verdict, 122, 1100, 836, 83);
 
     const metrics = [
       ["最快反应", `${fastest}ms`],
@@ -1183,21 +1323,29 @@
       ["6.66误差", `${sixError}s`],
     ];
     metrics.forEach(([label, value], index) => {
-      const x = 105 + index * 295;
-      context.fillStyle = colors.white;
-      context.fillRect(x, 1230, 275, 92);
-      context.strokeRect(x, 1230, 275, 92);
-      context.fillStyle = colors.ink;
-      context.textAlign = "center";
-      context.font = "800 23px ui-monospace, monospace";
-      context.fillText(label, x + 137, 1265);
-      context.font = "1000 29px ui-monospace, monospace";
-      context.fillText(value, x + 137, 1304);
+      const x = 96 + index * 304;
+      const metricColor = [colors.cyan, colors.magenta, colors.yellow][index];
+      context.strokeStyle = colors.line;
+      context.lineWidth = 2;
+      context.strokeRect(x, 1200, 280, 105);
+      context.fillStyle = metricColor;
+      context.fillRect(x, 1200, 56, 3);
+      context.textAlign = "left";
+      context.fillStyle = colors.muted;
+      context.font = `400 22px ${sans}`;
+      context.fillText(label, x + 20, 1237);
+      context.fillStyle = metricColor;
+      fitLine(value, x + 20, 1280, 240, 30, "italic 900", mono);
     });
 
-    context.textAlign = "center";
-    context.font = "900 24px sans-serif";
-    context.fillText("你能打职业吗？来测测。", 540, 1355);
+    context.textAlign = "left";
+    context.fillStyle = colors.ink;
+    context.font = `500 23px ${sans}`;
+    context.fillText("你能打职业吗？来测测。", 96, 1353);
+    context.textAlign = "right";
+    context.fillStyle = colors.muted;
+    context.font = `400 19px ${sans}`;
+    context.fillText("娱乐测试 · 非职业电竞选拔依据", 984, 1353);
     return canvas.toDataURL("image/png");
   }
 
@@ -1293,6 +1441,14 @@
 
     try {
       const image = renderShareCard(payload);
+      let filePath = image;
+      if (typeof miniTool.writeTempFile === "function") {
+        const tempFile = await miniTool.writeTempFile({ data: image });
+        if (!tempFile || typeof tempFile.filePath !== "string" || !tempFile.filePath) {
+          throw new Error("writeTempFile did not return filePath");
+        }
+        filePath = tempFile.filePath;
+      }
       const note = buildShareNote(payload.scores, payload.rank, payload.verdict, payload);
       button.textContent = "正在打开发布页…";
       await miniTool.postNote({
@@ -1300,7 +1456,7 @@
         content: note.content,
         pageType: "photo_publish",
         mediaInfo: {
-          image_resources: [{ url: image }],
+          image_resources: [{ url: filePath }],
         },
       });
       setShareFeedback(button, "已创建笔记，可在发布页继续编辑", "success");
@@ -1409,6 +1565,8 @@
   }
 
   function pauseForInterruption() {
+    if (sound) sound.suspend();
+    if (!booted) return;
     if (currentScreen === "play") {
       resetCurrentLevelResult();
       currentScreen = "intro";
@@ -1422,6 +1580,7 @@
   window.addEventListener("pagehide", pauseForInterruption);
   let interrupted = false;
   document.addEventListener("visibilitychange", () => {
+    if (!booted) { if (sound) sound.suspend(); return; }
     if (document.hidden) {
       interrupted = true;
       pauseForInterruption();
@@ -1434,18 +1593,26 @@
     }
   });
 
-  if (restoreProgress()) {
-    if (currentScreen === "final") showFinalResult();
-    else if (currentScreen === "result" && lastLevelResult) showLevelResult(lastLevelResult);
-    else {
-      if (currentScreen === "play") {
-        resetCurrentLevelResult();
-        resumeNotice = "检测到上次测试中断，本关已重置；已完成关卡仍然保留。";
-      } else if (!resumeNotice) {
-        resumeNotice = `已恢复到第 ${levelIndex + 1} 关。`;
+  function boot() {
+    if (booted) return;
+    if (sound && typeof sound.restorePreference === "function") sound.restorePreference();
+    const restored = restoreProgress();
+    booted = true;
+    if (restored) {
+      if (currentScreen === "final") showFinalResult();
+      else if (currentScreen === "result" && lastLevelResult) showLevelResult(lastLevelResult);
+      else {
+        if (currentScreen === "play") {
+          resetCurrentLevelResult();
+          resumeNotice = "检测到上次测试中断，本关已重置；已完成关卡仍然保留。";
+        } else if (!resumeNotice) {
+          resumeNotice = `已恢复到第 ${levelIndex + 1} 关。`;
+        }
+        currentScreen = "intro";
+        showLevelIntro();
       }
-      currentScreen = "intro";
-      showLevelIntro();
-    }
-  } else showHome();
+    } else showHome();
+  }
+  if (window.MiniStorage && window.MiniStorage.ready) Promise.resolve(window.MiniStorage.ready).then(boot, boot);
+  else boot();
 })();

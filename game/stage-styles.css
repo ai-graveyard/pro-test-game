@@ -1,0 +1,441 @@
+/* Full 3D challenge viewport. Load after styles.css. */
+.app-shell[data-screen="play"] .screen-play {
+  align-items: stretch;
+}
+
+.challenge-stage.play-area {
+  --scene-accent: #00ffff;
+  --scene-glow: rgba(0, 255, 255, .15);
+  --scene-top: 112px;
+  --scene-bottom: 96px;
+  position: relative;
+  isolation: isolate;
+  width: 100%; max-width: 900px;
+  height: 100%;
+  min-height: 0;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid #28334f;
+  border-top: 2px solid var(--scene-accent);
+  border-radius: 3px 12px 3px 12px;
+  background: linear-gradient(135deg, rgba(10, 14, 29, .94), rgba(12, 9, 24, .95));
+  box-shadow: inset 0 1px 0 rgba(227, 241, 255, .035), 0 5px 0 #04050d, 0 6px 0 #25223d, 0 18px 48px rgba(0, 0, 0, .32);
+  cursor: pointer;
+  touch-action: none;
+  /* Signal colors are deliberately immediate; no cue enters a transition. */
+  transition: none;
+}
+
+.challenge-stage.play-area::before,
+.challenge-stage.play-area::after {
+  content: none;
+}
+
+.challenge-stage.play-area:focus {
+  outline: 2px solid var(--scene-accent);
+  outline-offset: -5px;
+}
+
+.challenge-stage.play-area:focus-visible {
+  outline: 2px solid var(--scene-accent);
+  outline-offset: -5px;
+}
+
+.challenge-stage .play-head {
+  z-index: 5;
+  top: 15px;
+  right: 20px;
+  left: 20px;
+  pointer-events: none;
+}
+
+.challenge-stage .round-pill,
+.challenge-stage .status-pill {
+  padding: 5px 9px;
+  border-color: #34435d;
+  background: rgba(6, 10, 23, .92);
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.challenge-stage .status-pill {
+  border-color: var(--scene-accent);
+  color: var(--scene-accent);
+}
+
+.challenge-stage .challenge-caption {
+  position: absolute;
+  z-index: 4;
+  top: 52px;
+  right: 22px;
+  left: 22px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  grid-column-gap: 24px; column-gap: 24px;
+  grid-row-gap: 4px; row-gap: 4px;
+  text-align: left;
+  pointer-events: none;
+}
+
+.challenge-eyebrow {
+  grid-column: 1 / -1;
+  color: var(--scene-accent);
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: .14em;
+}
+
+.challenge-title {
+  min-width: 0;
+  color: #eef5ff;
+  font-size: 18px; font-size: clamp(18px, 2.5vw, 23px);
+  font-style: italic;
+  font-weight: 800; font-weight: 850;
+  line-height: 1.25;
+  letter-spacing: -.025em;
+  overflow-wrap: break-word;
+  text-wrap: balance;
+}
+
+.challenge-stage .challenge-caption .support-text {
+  max-width: 37ch;
+  margin: 0 0 1px;
+  color: #8c9ebc;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: .015em;
+  text-align: right;
+}
+
+.challenge-world {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #060914;
+  pointer-events: none;
+  contain: layout paint;
+}
+
+.challenge-world canvas {
+  position: absolute;
+  z-index: 0;
+  display: block;
+  top: 0; right: 0; bottom: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  touch-action: none;
+}
+
+/* Only edge marks are overlaid on the rendered world. */
+.challenge-world::before,
+.challenge-world::after {
+  position: absolute;
+  z-index: 2;
+  top: 0; right: 0; bottom: 0; left: 0;
+  content: "";
+  pointer-events: none;
+}
+
+.challenge-world::before {
+  background: linear-gradient(180deg, rgba(4, 7, 16, .95), rgba(4, 7, 16, .65) 13%, transparent 29%, transparent 70%, rgba(4, 7, 16, .72) 88%, rgba(4, 7, 16, .96));
+}
+
+.challenge-world::after {
+  opacity: .65;
+  background:
+    linear-gradient(var(--scene-accent), var(--scene-accent)) left 12px top / 22px 1px no-repeat,
+    linear-gradient(var(--scene-accent), var(--scene-accent)) left 12px top / 1px 12px no-repeat,
+    linear-gradient(var(--scene-accent), var(--scene-accent)) right 12px bottom / 22px 1px no-repeat,
+    linear-gradient(var(--scene-accent), var(--scene-accent)) right 12px bottom / 1px 12px no-repeat;
+}
+
+.challenge-stage .challenge-feedback {
+  position: absolute;
+  z-index: 6;
+  right: auto;
+  bottom: calc(var(--scene-bottom) + 14px);
+  left: 50%;
+  visibility: hidden;
+  width: max-content;
+  max-width: calc(100% - 38px);
+  padding: 8px 14px;
+  border: 1px solid var(--scene-accent);
+  border-radius: 2px 8px 2px 8px;
+  background: rgba(8, 13, 29, .95);
+  box-shadow: 3px 3px 0 rgba(7, 5, 17, .8), 0 0 20px var(--scene-glow);
+  color: #f1f7ff;
+  font-family: var(--mono);
+  font-size: 13px; font-size: clamp(13px, 2vw, 18px);
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: -.02em;
+  text-align: center;
+  overflow-wrap: break-word;
+  text-wrap: balance;
+  transform: translateX(-50%);
+  pointer-events: none;
+  transition: none;
+}
+
+.challenge-stage .challenge-feedback.is-visible,
+.challenge-stage.state-resolved .challenge-feedback:not(:empty) {
+  visibility: visible;
+}
+
+.challenge-actionbar {
+  position: absolute;
+  z-index: 4;
+  right: 20px;
+  bottom: 19px;
+  left: 20px;
+  display: grid;
+  grid-template-columns: 39px minmax(0, 1fr) auto;
+  align-items: center;
+  grid-column-gap: 12px; column-gap: 12px;
+  min-height: 57px;
+  padding: 10px 13px 10px 10px;
+  border: 1px solid #28364e;
+  border-left: 2px solid var(--scene-accent);
+  background: linear-gradient(100deg, rgba(18, 25, 43, .94), rgba(11, 14, 29, .85));
+  box-shadow: inset 0 -1px 0 rgba(140, 171, 216, .04);
+  pointer-events: none;
+}
+
+.action-icon {
+  display: grid;
+  align-items: center; justify-items: center; place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--scene-accent);
+  border-radius: 2px;
+  background: var(--scene-glow);
+  color: var(--scene-accent);
+  font-family: var(--sans);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.challenge-actionbar strong {
+  min-width: 0;
+  color: #dfe9ff;
+  font-size: 13px;
+  font-weight: 700; font-weight: 750;
+  line-height: 1.4;
+  letter-spacing: .035em;
+}
+
+.challenge-actionbar small {
+  max-width: 29ch;
+  color: #758bad;
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 1.6;
+  letter-spacing: .015em;
+  text-align: right;
+}
+
+.challenge-stage.stage-reaction {
+  --scene-accent: #d65dff;
+  --scene-glow: rgba(214, 93, 255, .16);
+}
+
+.challenge-stage.stage-timing {
+  --scene-accent: #ffff00;
+  --scene-glow: rgba(255, 255, 0, .12);
+}
+
+.challenge-stage.stage-decision {
+  --scene-accent: #ff1493;
+  --scene-glow: rgba(255, 20, 147, .15);
+}
+
+.challenge-stage.stage-prediction {
+  --scene-accent: #728dff;
+  --scene-glow: rgba(114, 141, 255, .18);
+}
+
+.challenge-stage.stage-attention {
+  --scene-accent: #00ffff;
+  --scene-glow: rgba(0, 255, 255, .14);
+  cursor: crosshair;
+}
+
+.challenge-stage.stage-pressure {
+  --scene-accent: #ff9234;
+  --scene-glow: rgba(255, 146, 52, .15);
+}
+
+/* The WebGL gate and this HUD switch on the same game frame. */
+.challenge-stage.reaction-waiting {
+  --scene-accent: #d65dff;
+  --scene-glow: rgba(214, 93, 255, .16);
+  border-color: #39304f;
+  border-top-color: var(--scene-accent);
+  background: rgba(10, 12, 25, .95);
+}
+
+.challenge-stage.reaction-live {
+  --scene-accent: #36ff91;
+  --scene-glow: rgba(54, 255, 145, .18);
+  border-color: #36ff91;
+  background: rgba(7, 18, 20, .95);
+}
+
+.challenge-stage.reaction-live .challenge-title,
+.challenge-stage.reaction-live .challenge-actionbar strong {
+  color: #9effc6;
+}
+
+.challenge-stage.reaction-false {
+  --scene-accent: #ff3971;
+  --scene-glow: rgba(255, 57, 113, .2);
+  border-color: #ff3971;
+  background: rgba(22, 9, 24, .95);
+}
+
+.challenge-stage.stage-attention:focus-visible .challenge-actionbar {
+  border-color: var(--scene-accent);
+}
+
+.challenge-stage.stage-attention:focus-visible .challenge-actionbar small::after {
+  display: block;
+  margin-top: 2px;
+  color: #b7d9ee;
+  font-size: 8px;
+  content: "方向键选目标 · 空格射击";
+}
+
+/* Readable by assistive technology, absent from the visual 3D scene. */
+.scene-a11y {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  clip: rect(0, 0, 0, 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+}
+
+@media (min-width: 1100px) {
+  .challenge-stage.play-area { width: 100%; max-width: 900px; }
+  .challenge-stage .challenge-caption { right: 28px; left: 28px; }
+  .challenge-stage .play-head { right: 26px; left: 26px; }
+  .challenge-actionbar { right: 26px; left: 26px; }
+}
+
+@media (max-width: 620px) {
+  .challenge-stage.play-area {
+    --scene-top: 108px;
+    --scene-bottom: 88px;
+    border-radius: 3px 9px 3px 9px;
+  }
+
+  .challenge-stage .play-head { top: 12px; right: 12px; left: 12px; }
+  .challenge-stage .round-pill,
+  .challenge-stage .status-pill { padding: 4px 7px; font-size: 8px; }
+  .challenge-stage .challenge-caption {
+    top: 46px;
+    right: 15px;
+    left: 15px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    grid-gap: 3px; gap: 3px;
+  }
+
+  .challenge-eyebrow { font-size: 6.5px; line-height: 1.4; letter-spacing: .12em; }
+  .challenge-title { font-size: 18px; line-height: 1.2; }
+  .challenge-stage .challenge-caption .support-text {
+    max-width: 100%;
+    font-size: 8px;
+    line-height: 1.5;
+    text-align: left;
+  }
+
+  .challenge-world::after {
+    background:
+      linear-gradient(var(--scene-accent), var(--scene-accent)) left 9px top / 16px 1px no-repeat,
+      linear-gradient(var(--scene-accent), var(--scene-accent)) left 9px top / 1px 9px no-repeat,
+      linear-gradient(var(--scene-accent), var(--scene-accent)) right 9px bottom / 16px 1px no-repeat,
+      linear-gradient(var(--scene-accent), var(--scene-accent)) right 9px bottom / 1px 9px no-repeat;
+  }
+
+  .challenge-actionbar {
+    right: 12px;
+    bottom: 15px;
+    left: 12px;
+    grid-template-columns: 29px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    grid-column-gap: 10px; column-gap: 10px;
+    grid-row-gap: 2px; row-gap: 2px;
+    min-height: 57px;
+    padding: 9px 10px 9px 9px;
+  }
+
+  .action-icon { grid-row: 1 / 3; width: 27px; height: 29px; font-size: 18px; }
+  .challenge-actionbar strong { font-size: 12px; line-height: 1.4; }
+  .challenge-actionbar small { grid-column: 2; max-width: none; font-size: 7px; line-height: 1.5; text-align: left; }
+  .challenge-stage .challenge-feedback { bottom: calc(var(--scene-bottom) + 11px); padding: 6px 10px; font-size: 12px; }
+  .challenge-stage.stage-attention:focus-visible .challenge-actionbar small::after { font-size: 7px; }
+}
+
+@media (max-height: 550px) {
+  .challenge-stage.play-area { --scene-top: 96px; --scene-bottom: 76px; }
+  .challenge-stage .play-head { top: 9px; }
+  .challenge-stage .challenge-caption { top: 40px; grid-row-gap: 2px; row-gap: 2px; }
+  .challenge-eyebrow { font-size: 6px; }
+  .challenge-title { font-size: 17px; }
+  .challenge-stage .challenge-caption .support-text { font-size: 8px; }
+  .challenge-actionbar { bottom: 10px; min-height: 53px; padding-top: 7px; padding-bottom: 7px; }
+}
+
+@media (max-width: 340px) {
+  .challenge-stage .challenge-caption { right: 11px; left: 11px; }
+  .challenge-title { font-size: 16px; }
+  .challenge-stage .challenge-caption .support-text { font-size: 7px; }
+  .challenge-actionbar { right: 9px; left: 9px; }
+  .challenge-actionbar strong { font-size: 11px; }
+  .challenge-actionbar small { font-size: 6.5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .challenge-stage,
+  .challenge-stage::before,
+  .challenge-stage::after,
+  .challenge-world::before,
+  .challenge-world::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* Keyboard instructions remain available on the baseline engine's :focus. */
+.challenge-stage.stage-attention:focus .challenge-actionbar { border-color: var(--scene-accent); }
+.challenge-stage.stage-attention:focus .challenge-actionbar small::after {
+  display: block; margin-top: 2px; color: #b7d9ee; font-size: 8px;
+  content: "方向键选目标 · 空格射击";
+}
+@media (max-width: 620px) {
+  html.no-flex-gap .challenge-stage .challenge-caption { gap: 0; row-gap: 0; column-gap: 0; }
+  html.no-flex-gap .challenge-stage .challenge-caption > * + * { margin-top: 3px; }
+  .challenge-stage.stage-attention:focus .challenge-actionbar small::after { font-size: 7px; }
+}
+@media (max-width: 620px) and (max-height: 550px) {
+  html.no-flex-gap .challenge-stage .challenge-caption > * + * { margin-top: 2px; }
+}
